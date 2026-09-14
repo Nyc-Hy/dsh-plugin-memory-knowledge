@@ -1,0 +1,275 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/schemas/memory-knowledge/memory-entry-v1.json",
+  "title": "DSH Memory Entry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "revision",
+    "scope",
+    "kind",
+    "status",
+    "title",
+    "content",
+    "evidenceClass",
+    "provenance",
+    "tags",
+    "supersedes",
+    "conflictsWith",
+    "sensitivity",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^mem_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "source"
+            },
+            "sourceId": {
+              "type": "string",
+              "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "spaceId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "space"
+            },
+            "spaceId": {
+              "type": "string",
+              "pattern": "^ks_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        }
+      ]
+    },
+    "kind": {
+      "enum": [
+        "fact",
+        "decision",
+        "lesson",
+        "method",
+        "preference",
+        "constraint"
+      ]
+    },
+    "status": {
+      "enum": [
+        "verified",
+        "conflicted",
+        "deprecated",
+        "deleted"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidenceClass": {
+      "enum": [
+        "deterministic",
+        "human-verified",
+        "ai-suggested"
+      ]
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "commit",
+              "path",
+              "contentHash"
+            ],
+            "properties": {
+              "kind": {
+                "const": "git-file"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+              },
+              "startLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "endLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "contentHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "commit"
+            ],
+            "properties": {
+              "kind": {
+                "const": "git-commit"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sessionId",
+              "eventSeqs"
+            ],
+            "properties": {
+              "kind": {
+                "const": "session"
+              },
+              "sessionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "eventSeqs": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "portableEvidence": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "path",
+              "contentHash"
+            ],
+            "properties": {
+              "kind": {
+                "const": "document"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+              },
+              "contentHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "supersedes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^mem_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      }
+    },
+    "conflictsWith": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^mem_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+      }
+    },
+    "sensitivity": {
+      "enum": [
+        "normal",
+        "restricted"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

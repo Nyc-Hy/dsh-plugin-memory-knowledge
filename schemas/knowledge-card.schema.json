@@ -1,0 +1,433 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/schemas/memory-knowledge/knowledge-card-v1.json",
+  "title": "DSH Knowledge Card v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "revision",
+    "scope",
+    "kind",
+    "title",
+    "summary",
+    "sections",
+    "provenance",
+    "sourceRevisions",
+    "status",
+    "evidenceClass",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^card_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sourceId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "source"
+            },
+            "sourceId": {
+              "type": "string",
+              "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "spaceId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "space"
+            },
+            "spaceId": {
+              "type": "string",
+              "pattern": "^ks_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        }
+      ]
+    },
+    "kind": {
+      "enum": [
+        "overview",
+        "architecture",
+        "module",
+        "flow",
+        "decision",
+        "stack"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "content",
+          "provenance"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provenance": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "sourceId",
+                    "commit",
+                    "path",
+                    "contentHash"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "git-file"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{7,64}$"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+                    },
+                    "startLine": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "endLine": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "contentHash": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "sourceId",
+                    "commit"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "git-commit"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{7,64}$"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "sessionId",
+                    "eventSeqs"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "session"
+                    },
+                    "sessionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "eventSeqs": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "portableEvidence": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "sourceId",
+                    "path",
+                    "contentHash"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "document"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+                    },
+                    "contentHash": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "commit",
+              "path",
+              "contentHash"
+            ],
+            "properties": {
+              "kind": {
+                "const": "git-file"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+              },
+              "startLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "endLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "contentHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "commit"
+            ],
+            "properties": {
+              "kind": {
+                "const": "git-commit"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sessionId",
+              "eventSeqs"
+            ],
+            "properties": {
+              "kind": {
+                "const": "session"
+              },
+              "sessionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "eventSeqs": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "portableEvidence": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "sourceId",
+              "path",
+              "contentHash"
+            ],
+            "properties": {
+              "kind": {
+                "const": "document"
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+(?:/(?!\\.{1,2}(?:/|$))[^/\\\\<>:\"|?*\\u0000-\\u001F]+)*$"
+              },
+              "contentHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "sourceRevisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "kind",
+          "commit"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "pattern": "^src_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "kind": {
+            "const": "git"
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,64}$"
+          },
+          "inventoryHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "catalogHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "verified",
+        "needs-review",
+        "stale",
+        "deprecated"
+      ]
+    },
+    "evidenceClass": {
+      "enum": [
+        "deterministic",
+        "human-verified",
+        "ai-suggested"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "mem_33333333-3333-4333-8333-333333333333",
+  "revision": 1,
+  "scope": {
+    "kind": "source",
+    "sourceId": "src_22222222-2222-4222-8222-222222222222"
+  },
+  "kind": "constraint",
+  "status": "verified",
+  "title": "示例模块返回固定问候语",
+  "content": "`greeting()` 返回 `hello`，依赖方可以把它作为稳定的示例输出。",
+  "evidenceClass": "deterministic",
+  "provenance": [
+    {
+      "kind": "git-file",
+      "sourceId": "src_22222222-2222-4222-8222-222222222222",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "src/example.ts",
+      "startLine": 2,
+      "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "tags": ["fixture", "example"],
+  "supersedes": [],
+  "conflictsWith": [],
+  "sensitivity": "normal",
+  "createdAt": "2026-08-24T00:00:00.000Z",
+  "updatedAt": "2026-08-24T00:00:00.000Z"
+}

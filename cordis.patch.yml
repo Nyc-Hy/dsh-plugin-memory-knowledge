@@ -1,0 +1,21 @@
+- insert:
+    - id: memory-knowledge-source-analysis
+      name: dsh-plugin-memory-knowledge/source-analysis-provider
+    - id: memory-knowledge-source-relations
+      name: dsh-plugin-memory-knowledge/source-relations-provider
+    - id: memory-knowledge-source-symbols
+      name: dsh-plugin-memory-knowledge/source-symbols-provider
+    - id: memory-knowledge-inventory
+      name: dsh-plugin-memory-knowledge/inventory-provider
+    - id: memory-knowledge-provider
+      name: dsh-plugin-memory-knowledge/provider
+    - id: memory-knowledge-wiki-agent
+      name: dsh-plugin-memory-knowledge/wiki-agent-provider
+    - id: memory-knowledge-conversation-extraction
+      name: dsh-plugin-memory-knowledge/conversation-extraction-consumer
+    - id: memory-knowledge-ui
+      name: dsh-plugin-memory-knowledge
+    - id: memory-knowledge-recall
+      name: dsh-plugin-memory-knowledge/recall
+    - id: memory-knowledge-tools
+      name: dsh-plugin-memory-knowledge/tools

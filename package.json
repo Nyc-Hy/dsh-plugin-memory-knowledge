@@ -1,0 +1,329 @@
+{
+  "name": "dsh-plugin-memory-knowledge",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 本地优先记忆与项目知识 Bundle",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.mjs"
+    },
+    "./schema": {
+      "types": "./lib/types/schema.d.ts",
+      "default": "./lib/schema.mjs"
+    },
+    "./canonical": {
+      "types": "./lib/types/canonical.d.ts",
+      "default": "./lib/canonical.mjs"
+    },
+    "./projection": {
+      "types": "./lib/types/projection.d.ts",
+      "default": "./lib/projection.mjs"
+    },
+    "./initialize": {
+      "types": "./lib/types/initialize.d.ts",
+      "default": "./lib/initialize.mjs"
+    },
+    "./service": {
+      "types": "./lib/types/service.d.ts",
+      "default": "./lib/service.mjs"
+    },
+    "./provider": {
+      "types": "./lib/types/provider.d.ts",
+      "default": "./lib/provider.mjs"
+    },
+    "./evidence-pack": {
+      "types": "./lib/types/evidence-pack.d.ts",
+      "default": "./lib/evidence-pack.mjs"
+    },
+    "./inventory": {
+      "types": "./lib/types/inventory.d.ts",
+      "default": "./lib/inventory.mjs"
+    },
+    "./candidate-generation": {
+      "types": "./lib/types/candidate-generation.d.ts",
+      "default": "./lib/candidate-generation.mjs"
+    },
+    "./source-records": {
+      "types": "./lib/types/source-records.d.ts",
+      "default": "./lib/source-records.mjs"
+    },
+    "./source-analysis": {
+      "types": "./lib/types/source-analysis.d.ts",
+      "default": "./lib/source-analysis.mjs"
+    },
+    "./source-analysis-service": {
+      "types": "./lib/types/source-analysis-service.d.ts",
+      "default": "./lib/source-analysis-service.mjs"
+    },
+    "./source-analysis-provider": {
+      "types": "./lib/types/source-analysis-provider.d.ts",
+      "default": "./lib/source-analysis-provider.mjs"
+    },
+    "./source-relations": {
+      "types": "./lib/types/source-relations.d.ts",
+      "default": "./lib/source-relations.mjs"
+    },
+    "./source-relation-query": {
+      "types": "./lib/types/source-relation-query.d.ts",
+      "default": "./lib/source-relation-query.mjs"
+    },
+    "./source-relations-service": {
+      "types": "./lib/types/source-relations-service.d.ts",
+      "default": "./lib/source-relations-service.mjs"
+    },
+    "./source-relations-provider": {
+      "types": "./lib/types/source-relations-provider.d.ts",
+      "default": "./lib/source-relations-provider.mjs"
+    },
+    "./source-symbols": {
+      "types": "./lib/types/source-symbols.d.ts",
+      "default": "./lib/source-symbols.mjs"
+    },
+    "./source-symbol-query": {
+      "types": "./lib/types/source-symbol-query.d.ts",
+      "default": "./lib/source-symbol-query.mjs"
+    },
+    "./source-symbols-service": {
+      "types": "./lib/types/source-symbols-service.d.ts",
+      "default": "./lib/source-symbols-service.mjs"
+    },
+    "./source-symbols-provider": {
+      "types": "./lib/types/source-symbols-provider.d.ts",
+      "default": "./lib/source-symbols-provider.mjs"
+    },
+    "./wiki-model": {
+      "types": "./lib/types/wiki-model.d.ts",
+      "default": "./lib/wiki-model.mjs"
+    },
+    "./wiki-task": {
+      "types": "./lib/types/wiki-task.d.ts",
+      "default": "./lib/wiki-task.mjs"
+    },
+    "./wiki-agent-service": {
+      "types": "./lib/types/wiki-agent-service.d.ts",
+      "default": "./lib/wiki-agent-service.mjs"
+    },
+    "./wiki-agent-provider": {
+      "types": "./lib/types/wiki-agent-provider.d.ts",
+      "default": "./lib/wiki-agent-provider.mjs"
+    },
+    "./wiki-catalog": {
+      "types": "./lib/types/wiki-catalog.d.ts",
+      "default": "./lib/wiki-catalog.mjs"
+    },
+    "./wiki-material": {
+      "types": "./lib/types/wiki-material.d.ts",
+      "default": "./lib/wiki-material.mjs"
+    },
+    "./knowledge-version": {
+      "types": "./lib/types/knowledge-version.d.ts",
+      "default": "./lib/knowledge-version.mjs"
+    },
+    "./conversation-extraction": {
+      "types": "./lib/types/conversation-extraction.d.ts",
+      "default": "./lib/conversation-extraction.mjs"
+    },
+    "./conversation-extraction-consumer": {
+      "types": "./lib/types/conversation-extraction-consumer.d.ts",
+      "default": "./lib/conversation-extraction-consumer.mjs"
+    },
+    "./inventory-provider": {
+      "types": "./lib/types/inventory-provider.d.ts",
+      "default": "./lib/inventory-provider.mjs"
+    },
+    "./recall": {
+      "types": "./lib/types/recall.d.ts",
+      "default": "./lib/recall.mjs"
+    },
+    "./tools": {
+      "types": "./lib/types/tools.d.ts",
+      "default": "./lib/tools.mjs"
+    },
+    "./ui-contract": {
+      "types": "./lib/types/ui-contract.d.ts",
+      "default": "./lib/ui-contract.mjs"
+    },
+    "./remote": {
+      "types": "./lib/types/remote-contract.d.ts",
+      "default": "./lib/remote-contract.mjs"
+    },
+    "./gateway": {
+      "types": "./lib/types/gateway.d.ts",
+      "default": "./lib/gateway.mjs"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./schemas/*": "./schemas/*",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-memory-knowledge": "./lib/cli.mjs"
+  },
+  "files": [
+    "lib/**/*.mjs",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "schemas/*.json",
+    "cordis.patch.yml",
+    "docs/*.md",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.build.json",
+    "generate:schemas": "tsx scripts/generate-schemas.ts",
+    "check:schemas": "tsx scripts/generate-schemas.ts --check",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:check": "npm pack --dry-run",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "typescript": "6.0.3",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-agent-default-model": ">=0.1.0-rc.8",
+    "@deepseek-ai/cordis": ">=4.0.1",
+    "@deepseek-ai/dsh-brand": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-fs": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-session": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-subprocess": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-typert-registry": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-workspace": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-api-gateway": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.0-rc.8",
+    "react": ">=18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-default-model": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-brand": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-fs": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subprocess": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-registry": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-workspace": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-api-gateway": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-renderer": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": "link:../deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-default-model": "link:../deepseek-harness/packages/core/agent-default-model",
+    "@deepseek-ai/dsh-atomic-write": "link:../deepseek-harness/packages/util/atomic-write",
+    "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-brand": "link:../deepseek-harness/packages/util/brand",
+    "@deepseek-ai/dsh-fs": "link:../deepseek-harness/packages/fs/fs",
+    "@deepseek-ai/dsh-home-paths": "link:../deepseek-harness/packages/util/home-paths",
+    "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-scope": "link:../deepseek-harness/packages/core/scope",
+    "@deepseek-ai/dsh-system-prompt": "link:../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-subprocess": "link:../deepseek-harness/packages/subprocess/subprocess",
+    "@deepseek-ai/dsh-tools": "link:../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-typert-protocol": "link:../deepseek-harness/packages/typert/protocol",
+    "@deepseek-ai/dsh-typert-registry": "link:../deepseek-harness/packages/typert/registry",
+    "@deepseek-ai/dsh-workspace": "link:../deepseek-harness/packages/workspace/workspace",
+    "@deepseek-ai/dsh-api-gateway": "link:../deepseek-harness/packages/api/gateway",
+    "@deepseek-ai/dsh-client-ui-settings": "link:../deepseek-harness/packages/client/ui-settings",
+    "@deepseek-ai/dsh-client-ui-renderer": "link:../deepseek-harness/packages/client/ui-renderer",
+    "@deepseek-ai/dsh-client-locale": "link:../deepseek-harness/packages/client/locale",
+    "@deepseek-ai/dsh-client-ui-slots": "link:../deepseek-harness/packages/client/ui-slots",
+    "@deepseek-ai/dsh-client-ui-primitives": "link:../deepseek-harness/packages/client/ui-primitives",
+    "@testing-library/react": "16.3.0",
+    "@types/react": "18.3.28",
+    "@types/react-dom": "18.3.7",
+    "@types/node": "22.20.0",
+    "jsdom": "26.1.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tsdown": "0.22.2",
+    "tsx": "4.20.6",
+    "vitest": "4.1.8"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "license": "MIT"
+}

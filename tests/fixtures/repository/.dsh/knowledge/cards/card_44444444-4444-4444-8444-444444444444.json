@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "card_44444444-4444-4444-8444-444444444444",
+  "revision": 1,
+  "scope": {
+    "kind": "source",
+    "sourceId": "src_22222222-2222-4222-8222-222222222222"
+  },
+  "kind": "module",
+  "title": "示例模块",
+  "summary": "用于验证 canonical reader、投影和 Git round-trip 的最小模块。",
+  "sections": [
+    {
+      "id": "responsibility",
+      "title": "职责",
+      "content": "提供无副作用的固定问候语。",
+      "provenance": [
+        {
+          "kind": "git-file",
+          "sourceId": "src_22222222-2222-4222-8222-222222222222",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "src/example.ts",
+          "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "kind": "git-file",
+      "sourceId": "src_22222222-2222-4222-8222-222222222222",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "src/example.ts",
+      "contentHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "sourceRevisions": [
+    {
+      "sourceId": "src_22222222-2222-4222-8222-222222222222",
+      "kind": "git",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "status": "verified",
+  "evidenceClass": "deterministic",
+  "createdAt": "2026-08-24T00:00:00.000Z",
+  "updatedAt": "2026-08-24T00:00:00.000Z"
+}
