@@ -359,7 +359,7 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     expect(await upgraded.listSourceUnderstandings(project)).toEqual(before)
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     expect(migrated.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'wiki_runs'").get())
       .toEqual({ count: 1 })
     expect(migrated.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'wiki_tasks'").get())
@@ -540,7 +540,7 @@ describe('memory knowledge engine', () => {
       incompleteFileCount: null,
     })
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     expect(migrated.prepare('SELECT count(*) AS count FROM wiki_tasks').get()).toEqual({ count: 1 })
     migrated.close()
   })
@@ -633,7 +633,7 @@ describe('memory knowledge engine', () => {
       claims: [{ id: claimId, status: 'proposed' }],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     database.close()
   })
 
@@ -750,7 +750,7 @@ describe('memory knowledge engine', () => {
       ]),
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     database.close()
   })
 
@@ -874,7 +874,7 @@ describe('memory knowledge engine', () => {
       ]),
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     database.close()
   })
 
@@ -937,7 +937,7 @@ describe('memory knowledge engine', () => {
       tasks: [expect.objectContaining({ materialRanges: [] })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     database.close()
   })
 
@@ -1027,7 +1027,7 @@ describe('memory knowledge engine', () => {
       claims: [expect.objectContaining({ id: claimId, sourceClaimIds: [] })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     database.close()
   })
 

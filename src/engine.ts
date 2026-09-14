@@ -34,6 +34,7 @@ import type {
   KnowledgeHumanRevision,
   KnowledgeHumanRevisionResult,
 } from './knowledge-revision.js'
+import type { EffectiveKnowledgeSearchHit, EffectiveKnowledgeSearchRequest } from './effective-knowledge.js'
 import {
   MAX_SOURCE_EVIDENCE_QUERY_CHARS,
   type SourceEvidencePack,
@@ -302,6 +303,12 @@ export class MemoryKnowledgeEngine {
   ): Promise<KnowledgeHumanRevisionResult> {
     const projectRoot = await realpath(resolve(input.projectRoot))
     return this.database.applyKnowledgeHumanRevision({ ...input, projectRoot })
+  }
+
+  /** Search the FTS projection of one project's current EffectiveVersion only. */
+  async searchEffectiveKnowledge(request: EffectiveKnowledgeSearchRequest): Promise<EffectiveKnowledgeSearchHit[]> {
+    const projectRoot = await realpath(resolve(request.projectRoot))
+    return this.database.searchEffectiveKnowledge({ ...request, projectRoot })
   }
 
   /** Seal and activate one complete Wiki run when every Host completion check passes. */

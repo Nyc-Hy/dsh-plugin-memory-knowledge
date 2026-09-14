@@ -203,6 +203,13 @@ describe('project knowledge versions', () => {
     const generatedVersion = createKnowledgeGeneratedVersion(snapshot, passingCompletion(), timestamp)
     const effectiveVersion = createKnowledgeEffectiveVersion(generatedVersion, timestamp)
 
+    expect(await database.searchEffectiveKnowledge({
+      query: '项目入口',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toEqual([])
+
     const activated = await database.activateKnowledgeVersion({
       generatedVersion,
       effectiveVersion,
@@ -221,6 +228,25 @@ describe('project knowledge versions', () => {
     })
     expect(retried).toEqual(activated)
     expect(await database.getKnowledgeVersionState(snapshot.run.projectRoot)).toEqual(activated)
+    expect(await database.searchEffectiveKnowledge({
+      query: '项目入口',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toMatchObject([{
+      title: '项目概览',
+      content: expect.stringContaining('README 明确描述项目入口。'),
+      generatedVersionId: generatedVersion.id,
+      effectiveVersionId: activated.effectiveVersion.id,
+      humanRevisionIds: [],
+      sources: [{ provenance: { kind: 'document', path: 'README.md' } }],
+    }])
+    expect(await database.search({
+      query: '项目入口',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toEqual([])
 
     const changed = finalizeWikiRunSnapshot({
       ...withoutSnapshotHash(snapshot),
@@ -277,6 +303,26 @@ describe('project knowledge versions', () => {
       .toEqual(generatedVersion)
     expect(await database.listKnowledgeHumanRevisions(snapshot.run.projectRoot, 20))
       .toEqual([revised.revision])
+    expect(await database.searchEffectiveKnowledge({
+      query: 'README 明确描述',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toEqual([])
+    expect(await database.searchEffectiveKnowledge({
+      query: '操作者补充',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toMatchObject([{
+      title: '人工项目概览',
+      content: expect.stringContaining('操作者补充的项目入口说明。'),
+      effectiveVersionId: revised.effectiveVersion.id,
+      humanRevisionIds: [revised.revision.id],
+      bodyRevisionId: revised.revision.id,
+      noteRevisionIds: [],
+      sources: [],
+    }])
   })
 
   it('rejects stale edits and idempotency keys reused with different content', async () => {
@@ -300,7 +346,25 @@ describe('project knowledge versions', () => {
       kind: 'append-page-note' as const,
       content: '第一条人工说明。',
     }
-    await database.applyKnowledgeHumanRevision(request, '2026-09-10T00:08:00.000Z')
+    const appended = await database.applyKnowledgeHumanRevision(request, '2026-09-10T00:08:00.000Z')
+    expect(await database.searchEffectiveKnowledge({
+      query: 'README 明确',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toMatchObject([{ content: expect.stringContaining('README 明确描述项目入口。') }])
+    expect(await database.searchEffectiveKnowledge({
+      query: '第一条人工说明',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toMatchObject([{
+      effectiveVersionId: appended.effectiveVersion.id,
+      humanRevisionIds: [appended.revision.id],
+      noteRevisionIds: [appended.revision.id],
+      content: expect.stringContaining('第一条人工说明。'),
+      sources: [{ provenance: { kind: 'document', path: 'README.md' } }],
+    }])
 
     await expect(database.applyKnowledgeHumanRevision({
       ...request,
@@ -359,6 +423,12 @@ describe('project knowledge versions', () => {
     const upgraded = await memoryDatabase(databasePath)
     const state = await upgraded.getKnowledgeVersionState(snapshot.run.projectRoot)
     expect(state.effectiveVersion?.humanRevisionIds).toEqual([])
+    expect(await upgraded.searchEffectiveKnowledge({
+      query: '项目入口',
+      projectRoot: snapshot.run.projectRoot,
+      limit: 5,
+      maxChars: 2_000,
+    })).toMatchObject([{ effectiveVersionId: state.effectiveVersion?.id }])
     const page = snapshot.pages.find(candidate => candidate.claimIds.length > 0)!
     await upgraded.applyKnowledgeHumanRevision({
       requestId: createKnowledgeHumanRevisionRequestId(),
@@ -370,7 +440,7 @@ describe('project knowledge versions', () => {
       content: '迁移后新增的人工说明。',
     })
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     expect(migrated.prepare(`
       SELECT COUNT(*) AS count FROM knowledge_effective_versions WHERE generated_version_id = ?
     `).get(generatedVersion.id)).toEqual({ count: 2 })

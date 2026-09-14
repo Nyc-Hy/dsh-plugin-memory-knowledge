@@ -39,6 +39,7 @@ import type {
   KnowledgeHumanRevision,
   KnowledgeHumanRevisionResult,
 } from './knowledge-revision.js'
+import type { EffectiveKnowledgeSearchHit, EffectiveKnowledgeSearchRequest } from './effective-knowledge.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -126,6 +127,9 @@ export abstract class MemoryKnowledge extends Service {
   abstract applyKnowledgeHumanRevision(
     input: CreateKnowledgeHumanRevisionInput,
   ): Promise<KnowledgeHumanRevisionResult>
+
+  /** Search only the currently selected EffectiveVersion Wiki pages for one project. */
+  abstract searchEffectiveKnowledge(request: EffectiveKnowledgeSearchRequest): Promise<EffectiveKnowledgeSearchHit[]>
 
   /** Activate one complete Wiki run after every Host completion check passes. */
   abstract activateWikiRun(runId: WikiRunId): Promise<KnowledgeActivationResult>

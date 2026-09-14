@@ -31,6 +31,7 @@ import { makeTempProject } from './helpers.js'
 const contexts: Context[] = []
 
 class ExtractionMemoryKnowledge extends MemoryKnowledge {
+  override async searchEffectiveKnowledge(): Promise<[]> { return [] }
   readonly checkpoints = new Map<string, ConversationExtractionCheckpoint>()
   readonly candidates: MemoryCandidate[] = []
 

@@ -22,7 +22,7 @@
 | FreshnessAssessment | 生效版本、目标 Source 向量、变化证据、受影响对象、检查状态 | 新鲜度服务；不改写历史生成事实 |
 | KnowledgeSelection | 项目/范围/Source 目标、选择修订、当前分析代际/Run、自动或固定模式、停用记录 | 本机版本选择；不按任务完成时间或分支名称决定新旧 |
 
-其中 MemoryEntry、MemoryRevision、GeneratedVersion、EffectiveVersion 和 KnowledgeSelection 已完成第一阶段持久化及运行接口；HumanRevision 已完成面向 Wiki Page 的正文替换与追加说明纵切，包括幂等保存、版本并发校验和同一生效版双视图投影。其余名称仍是设计名，不代表已有完整接口。当前版本清单直接引用既有 Page、Claim、Citation 与 Conflict，尚未形成完整 KnowledgeObject 或 FreshnessAssessment；现有 HumanRevision 也尚未进入 Agent 默认查询、全文索引、对象身份沿革或三方合并。复用现有 KnowledgeSpaceId 表示稳定项目身份，KnowledgeSourceId 表示材料源；Workspace 与本机绝对路径只是本地绑定。用户看到的项目名称可改，身份不随改名或迁移机器变化。
+其中 MemoryEntry、MemoryRevision、GeneratedVersion、EffectiveVersion 和 KnowledgeSelection 已完成第一阶段持久化及运行接口；HumanRevision 已完成面向 Wiki Page 的正文替换与追加说明纵切，包括幂等保存、版本并发校验和同一生效版双视图投影。其余名称仍是设计名，不代表已有完整接口。当前版本清单直接引用既有 Page、Claim、Citation 与 Conflict，尚未形成完整 KnowledgeObject 或 FreshnessAssessment；现有 HumanRevision 已进入只包含当前 EffectiveVersion 的独立本地全文索引，但尚未进入 Agent 默认查询、对象身份沿革或三方合并。复用现有 KnowledgeSpaceId 表示稳定项目身份，KnowledgeSourceId 表示材料源；Workspace 与本机绝对路径只是本地绑定。用户看到的项目名称可改，身份不随改名或迁移机器变化。
 
 状态不能挤进一个 `verified` 字段：执行状态、结论类型、核验状态、来源和新鲜度分别保存。人工陈述可以生效而尚未由代码证实；模型推断不能因为进入生效版本就升级为事实；有冲突的已完成版本仍可以使用，但必须携带冲突。
 

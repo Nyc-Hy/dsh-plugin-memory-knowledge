@@ -32,6 +32,7 @@ let searchRequests: MemorySearchRequest[] = []
 const contexts: Context[] = []
 
 class StubMemoryKnowledge extends MemoryKnowledge {
+  override async searchEffectiveKnowledge(): Promise<[]> { return [] }
   override saveCandidate(_input: SaveMemoryCandidateInput): Promise<MemoryCandidate> {
     return Promise.reject(new Error('unused'))
   }

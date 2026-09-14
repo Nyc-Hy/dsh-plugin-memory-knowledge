@@ -55,6 +55,12 @@ import {
   type KnowledgeHumanRevisionResult,
 } from './knowledge-revision.js'
 import {
+  effectiveKnowledgeDocuments,
+  parseEffectiveKnowledgeDocument,
+  type EffectiveKnowledgeSearchHit,
+  type EffectiveKnowledgeSearchRequest,
+} from './effective-knowledge.js'
+import {
   SOURCE_EVIDENCE_RETRIEVER_VERSION,
   type SourceEvidenceHit,
   type SourceEvidencePack,
@@ -131,7 +137,7 @@ import {
 } from './wiki-model.js'
 
 /** Current local candidate/search database schema. */
-export const MEMORY_DATABASE_SCHEMA_VERSION = 23
+export const MEMORY_DATABASE_SCHEMA_VERSION = 24
 
 const SOURCE_RECORD_REBUILD_SCHEMA_VERSION = 3
 const SOURCE_RECORD_SCHEMA_VERSION = 4
@@ -153,6 +159,7 @@ const PRE_MATERIAL_BUDGET_SCHEMA_VERSION = 19
 const PRE_KNOWLEDGE_VERSION_SCHEMA_VERSION = 20
 const PRE_LOCAL_MEMORY_ENTRY_SCHEMA_VERSION = 21
 const PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION = 22
+const PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION = 23
 
 /** SQLite application id protecting unrelated files from memory schema writes. */
 export const MEMORY_DATABASE_APPLICATION_ID = 0x44534d4b
@@ -449,6 +456,7 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         PRE_KNOWLEDGE_VERSION_SCHEMA_VERSION,
         PRE_LOCAL_MEMORY_ENTRY_SCHEMA_VERSION,
         PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION,
+        PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION,
         MEMORY_DATABASE_SCHEMA_VERSION,
       ].includes(version)) {
       throw new Error(
@@ -496,6 +504,11 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         && version >= SOURCE_RECORD_REBUILD_SCHEMA_VERSION
         && version <= PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION) {
         migrateKnowledgeHumanRevisions(database)
+      }
+      if (applicationId === MEMORY_DATABASE_APPLICATION_ID
+        && version >= SOURCE_RECORD_REBUILD_SCHEMA_VERSION
+        && version <= PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION) {
+        migrateEffectiveKnowledgeSearch(database)
       }
       if (rebuildSourceRecords) {
         database.exec('DELETE FROM source_evidence_fts')
@@ -976,6 +989,28 @@ function migrateKnowledgeHumanRevisions(database: DatabaseSync): void {
   database.exec('DROP TABLE knowledge_effective_versions_pre_human_revision')
   database.exec('CREATE INDEX knowledge_effective_versions_project_created ON knowledge_effective_versions(project_root, created_at DESC)')
   database.exec('CREATE INDEX knowledge_effective_versions_generated ON knowledge_effective_versions(generated_version_id, created_at DESC)')
+}
+
+function migrateEffectiveKnowledgeSearch(database: DatabaseSync): void {
+  const rows = database.prepare(`
+    SELECT payload_json FROM knowledge_selections
+    WHERE effective_version_id IS NOT NULL ORDER BY project_root ASC
+  `).all() as unknown as WikiPayloadRow[]
+  database.prepare("SELECT document_key FROM search_documents WHERE owner = 'effective-knowledge'")
+    .all()
+    .forEach(row => deleteSearchDocument(database, String((row as { document_key: string }).document_key)))
+  for (const row of rows) {
+    const selection = parseKnowledgeSelection(parseJson('knowledge selection search migration row', row.payload_json))
+    if (selection.effectiveVersionId === undefined) continue
+    const effectiveRow = database.prepare('SELECT payload_json FROM knowledge_effective_versions WHERE id = ?')
+      .get(selection.effectiveVersionId) as WikiPayloadRow | undefined
+    if (effectiveRow === undefined) throw new Error('selected effective knowledge version is missing during search migration')
+    replaceEffectiveKnowledgeSearchDocuments(
+      database,
+      selection.projectRoot,
+      parseKnowledgeEffectiveVersion(parseJson('effective knowledge search migration row', effectiveRow.payload_json)),
+    )
+  }
 }
 
 function migrateWikiRuntimeV1(database: DatabaseSync): void {
@@ -1914,6 +1949,63 @@ function upsertSearchDocument(
   )
 }
 
+function replaceEffectiveKnowledgeSearchDocuments(
+  database: DatabaseSync,
+  projectRoot: string,
+  effectiveVersion: KnowledgeEffectiveVersion,
+): void {
+  const root = resolve(projectRoot)
+  if (effectiveVersion.projectRoot !== root) {
+    throw new Error('effective knowledge search refresh crosses project ownership')
+  }
+  const generatedRow = database.prepare('SELECT payload_json FROM knowledge_generated_versions WHERE id = ?')
+    .get(effectiveVersion.generatedVersionId) as WikiPayloadRow | undefined
+  if (generatedRow === undefined) throw new Error('effective knowledge search refresh has no generated version')
+  const generated = parseKnowledgeGeneratedVersion(
+    parseJson('effective knowledge search generated version row', generatedRow.payload_json),
+  )
+  const snapshot = wikiRunSnapshotFromDatabase(database, effectiveVersion.runId)
+  if (snapshot === undefined) throw new Error('effective knowledge search refresh has no Wiki snapshot')
+  const revisionRows = database.prepare(`
+    SELECT payload_json FROM knowledge_human_revisions
+    WHERE project_root = ? ORDER BY revision ASC
+  `).all(root) as unknown as WikiPayloadRow[]
+  const documents = effectiveKnowledgeDocuments(
+    snapshot,
+    generated,
+    effectiveVersion,
+    revisionRows.map(row => parseKnowledgeHumanRevision(
+      parseJson('effective knowledge search revision row', row.payload_json),
+    )),
+  )
+  const existing = database.prepare(`
+    SELECT document_key FROM search_documents
+    WHERE owner = 'effective-knowledge' AND project_root = ?
+  `).all(root) as unknown as Array<{ document_key: string }>
+  for (const row of existing) deleteSearchDocument(database, row.document_key)
+  const insertDocument = database.prepare(`
+    INSERT INTO search_documents (
+      document_key, owner, record_id, record_type, project_root, sensitivity,
+      status, updated_at, payload_json
+    ) VALUES (?, 'effective-knowledge', ?, 'effective-knowledge-page', ?, 'normal', ?, ?, ?)
+  `)
+  const insertFts = database.prepare(
+    'INSERT INTO search_fts (document_key, title, content, tags) VALUES (?, ?, ?, ?)',
+  )
+  for (const document of documents) {
+    const key = `effective-knowledge:${root}:${effectiveVersion.id}:${document.pageId}`
+    insertDocument.run(
+      key,
+      document.pageId,
+      root,
+      document.status,
+      document.updatedAt,
+      JSON.stringify(document),
+    )
+    insertFts.run(key, document.title, document.content, document.tags.join(' '))
+  }
+}
+
 function candidateSearchDocument(candidate: MemoryCandidate): StoredSearchDocument {
   return {
     id: candidate.id,
@@ -2094,10 +2186,10 @@ function ftsExpression(terms: readonly string[]): string {
   return terms.map(term => `"${term.replaceAll('"', '""')}"`).join(' OR ')
 }
 
-function recordDomainClause(domain: MemoryRecordDomain | undefined, column: string): string | undefined {
+function recordDomainClause(domain: MemoryRecordDomain | undefined, column: string): string {
   if (domain === 'memory') return `${column} IN ('personal-memory', 'project-memory')`
   if (domain === 'knowledge') return `${column} = 'knowledge-card'`
-  return undefined
+  return `${column} <> 'effective-knowledge-page'`
 }
 
 function recordScopeClause(
@@ -3149,6 +3241,7 @@ export class MemoryKnowledgeDatabase {
         JSON.stringify(revision),
         JSON.stringify(result),
       )
+      replaceEffectiveKnowledgeSearchDocuments(this.database, request.projectRoot, effectiveVersion)
       return structuredClone(result)
     }))
   }
@@ -3255,6 +3348,7 @@ export class MemoryKnowledgeDatabase {
         : parseKnowledgeEffectiveVersion(parseJson('knowledge effective version row', storedEffectiveRow.payload_json))
 
       if (selection?.effectiveVersionId === effectiveVersion.id) {
+        replaceEffectiveKnowledgeSearchDocuments(this.database, root, effectiveVersion)
         return {
           generatedVersion: structuredClone(generatedVersion),
           effectiveVersion: structuredClone(effectiveVersion),
@@ -3312,6 +3406,7 @@ export class MemoryKnowledgeDatabase {
         root,
         selection.revision,
       )
+      replaceEffectiveKnowledgeSearchDocuments(this.database, root, effectiveVersion)
       return {
         generatedVersion: structuredClone(generatedVersion),
         effectiveVersion: structuredClone(effectiveVersion),
@@ -3941,6 +4036,53 @@ export class MemoryKnowledgeDatabase {
     }))
   }
 
+  /** Search only the current EffectiveVersion Wiki pages for one exact project. */
+  searchEffectiveKnowledge(request: EffectiveKnowledgeSearchRequest): Promise<EffectiveKnowledgeSearchHit[]> {
+    return this.serialized(() => {
+      const query = normalizedText(request.query, 'query')
+      const terms = queryTerms(query)
+      const parameters: Array<string | number> = []
+      let statement: string
+      if (terms.length === 0) {
+        statement = `
+          SELECT d.payload_json, 0.0 AS rank
+          FROM search_documents d
+          JOIN search_fts f ON f.document_key = d.document_key
+          WHERE instr(lower(f.title || char(10) || f.content || char(10) || f.tags), lower(?)) > 0
+        `
+        parameters.push(query)
+      } else {
+        statement = `
+          SELECT d.payload_json, bm25(search_fts) AS rank
+          FROM search_fts
+          JOIN search_documents d ON d.document_key = search_fts.document_key
+          WHERE search_fts MATCH ?
+        `
+        parameters.push(ftsExpression(terms))
+      }
+      statement += " AND d.owner = 'effective-knowledge' AND d.record_type = 'effective-knowledge-page' AND d.project_root = ?\n"
+      parameters.push(resolve(request.projectRoot))
+      statement += ' ORDER BY rank ASC, d.updated_at DESC, d.record_id ASC LIMIT ?'
+      parameters.push(request.limit)
+      const rows = this.database.prepare(statement).all(...parameters) as unknown as SearchRow[]
+      const hits: EffectiveKnowledgeSearchHit[] = []
+      let remaining = request.maxChars
+      for (const row of rows) {
+        if (remaining <= 0) break
+        const document = parseEffectiveKnowledgeDocument(parseJson('effective knowledge search row', row.payload_json))
+        const content = document.content.slice(0, remaining)
+        hits.push({
+          ...document,
+          content,
+          score: Number.isFinite(row.rank) ? -row.rank : 0,
+          truncated: content.length < document.content.length,
+        })
+        remaining -= content.length
+      }
+      return hits
+    }, request.signal)
+  }
+
   /** List newest normal-sensitivity records that are eligible for recall. */
   listRecallable(request: ListRecallableMemoryRequest): Promise<RecallableMemoryRecord[]> {
     return this.serialized(() => {
@@ -3951,7 +4093,7 @@ export class MemoryKnowledgeDatabase {
       parameters.push(request.limit)
       const rows = this.database.prepare(`
         SELECT payload_json, status FROM search_documents
-        WHERE sensitivity = 'normal' AND ${scope.clause}${domain === undefined ? '' : ` AND ${domain}`}
+        WHERE sensitivity = 'normal' AND ${scope.clause} AND ${domain}
         ORDER BY updated_at DESC, record_id ASC
         LIMIT ?
       `).all(...parameters) as unknown as TraceRow[]
@@ -4003,7 +4145,7 @@ export class MemoryKnowledgeDatabase {
       matchClause += ` AND ${scope.clause}\n`
       if (scope.parameter !== undefined) parameters.push(scope.parameter)
       const domain = recordDomainClause(request.domain, 'd.record_type')
-      if (domain !== undefined) matchClause += ` AND ${domain}\n`
+      matchClause += ` AND ${domain}\n`
       if (request.includeRestricted !== true) matchClause += " AND d.sensitivity = 'normal'\n"
       matchClause += ' ORDER BY rank ASC, d.updated_at DESC, d.record_id ASC LIMIT ?'
       parameters.push(request.limit)
@@ -4064,7 +4206,7 @@ export class MemoryKnowledgeDatabase {
           updatedAt: local.updatedAt,
         }
       }
-      const clauses = ['record_id = ?']
+      const clauses = ["record_id = ?", "owner <> 'effective-knowledge'"]
       const parameters: string[] = [id]
       if (projectRoot !== undefined) {
         clauses.push('(project_root IS NULL OR project_root = ?)')

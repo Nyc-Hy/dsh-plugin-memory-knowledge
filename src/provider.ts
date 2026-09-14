@@ -44,6 +44,7 @@ import type {
   KnowledgeHumanRevision,
   KnowledgeHumanRevisionResult,
 } from './knowledge-revision.js'
+import type { EffectiveKnowledgeSearchHit, EffectiveKnowledgeSearchRequest } from './effective-knowledge.js'
 
 /** Local SQLite provider configuration. */
 export interface Config {
@@ -204,6 +205,10 @@ export class LocalMemoryKnowledge extends MemoryKnowledge {
     input: CreateKnowledgeHumanRevisionInput,
   ): Promise<KnowledgeHumanRevisionResult> {
     return (await this.engine).applyKnowledgeHumanRevision(input)
+  }
+
+  override async searchEffectiveKnowledge(request: EffectiveKnowledgeSearchRequest): Promise<EffectiveKnowledgeSearchHit[]> {
+    return (await this.engine).searchEffectiveKnowledge(request)
   }
 
   override async activateWikiRun(runId: WikiRunId): Promise<KnowledgeActivationResult> {
