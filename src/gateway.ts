@@ -406,16 +406,17 @@ export class MemoryKnowledgeGateway extends TypertRemoteService {
     const workspace = this.resolveWorkspace(request.workspaceId, this.ctx.workspaceRegistry.list())
     if (workspace === undefined) throw new Error('knowledge revision requires a workspace')
     try {
-      const result = await this.ctx.memoryKnowledge.applyKnowledgeHumanRevision({
+      const inputBase = {
         requestId: KnowledgeHumanRevisionRequestId(request.requestId),
         projectRoot: workspace.path,
         expectedSelectionRevision: request.expectedSelectionRevision,
         baseEffectiveVersionId: KnowledgeEffectiveVersionId(request.baseEffectiveVersionId),
         pageId: WikiPageId(request.pageId),
-        kind: request.kind,
-        ...(request.title === undefined ? {} : { title: request.title }),
         content: request.content,
-      })
+      }
+      const result = await this.ctx.memoryKnowledge.applyKnowledgeHumanRevision(request.kind === 'replace-page-body'
+        ? { ...inputBase, kind: request.kind, title: request.title }
+        : { ...inputBase, kind: request.kind })
       const knowledgeVersion = this.projectKnowledgeVersion({
         selection: result.selection,
         effectiveVersion: result.effectiveVersion,

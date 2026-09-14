@@ -372,17 +372,20 @@ export interface MemoryUiWikiTreeResult {
   omittedSourceCount: number
 }
 
-/** Save one explicit operator interpretation of a generated Wiki page. */
-export interface MemoryUiKnowledgeRevisionSaveRequest {
+interface MemoryUiKnowledgeRevisionSaveRequestBase {
   workspaceId: string
   requestId: string
   expectedSelectionRevision: number
   baseEffectiveVersionId: string
   pageId: string
-  kind: 'replace-page-body' | 'append-page-note'
-  title?: string
   content: string
 }
+
+/** Save one explicit operator interpretation of a generated Wiki page. */
+export type MemoryUiKnowledgeRevisionSaveRequest = MemoryUiKnowledgeRevisionSaveRequestBase & (
+  | { kind: 'replace-page-body'; title: string }
+  | { kind: 'append-page-note'; title?: never }
+)
 
 /** Knowledge edits use selection and effective-version compare-and-swap checks. */
 export type MemoryUiKnowledgeRevisionSaveResult =

@@ -331,14 +331,16 @@ const wikiPageClaimSchema = z.object({
   omittedSourceCount: z.number().int().nonnegative(),
   humanReviewPending: z.boolean(),
 }).strict()
-const knowledgeHumanRevisionSchema = z.object({
+const knowledgeHumanRevisionBase = {
   id: z.string().regex(new RegExp(KNOWLEDGE_HUMAN_REVISION_ID_PATTERN, 'u')),
   revision: z.number().int().positive(),
-  kind: z.enum(['replace-page-body', 'append-page-note']),
-  title: z.string().max(300).optional(),
   content: z.string().max(20_000),
   createdAt: z.string().datetime(),
-}).strict()
+}
+const knowledgeHumanRevisionSchema = z.discriminatedUnion('kind', [
+  z.object({ ...knowledgeHumanRevisionBase, kind: z.literal('replace-page-body'), title: z.string().min(1).max(300) }).strict(),
+  z.object({ ...knowledgeHumanRevisionBase, kind: z.literal('append-page-note') }).strict(),
+])
 const wikiPageNodeSchema = z.object({
   id: idSchema,
   parentId: idSchema.optional(),
@@ -366,16 +368,18 @@ const wikiTreeResultSchema = z.object({
   omittedClaimCount: z.number().int().nonnegative(),
   omittedSourceCount: z.number().int().nonnegative(),
 }).strict()
-const knowledgeRevisionSaveRequestSchema = z.object({
+const knowledgeRevisionSaveRequestBase = {
   workspaceId: workspaceIdSchema,
   requestId: z.string().regex(new RegExp(KNOWLEDGE_HUMAN_REVISION_REQUEST_ID_PATTERN, 'u')),
   expectedSelectionRevision: z.number().int().positive(),
   baseEffectiveVersionId: z.string().regex(new RegExp(KNOWLEDGE_EFFECTIVE_VERSION_ID_PATTERN, 'u')),
   pageId: z.string().regex(new RegExp(WIKI_PAGE_ID_PATTERN, 'u')),
-  kind: z.enum(['replace-page-body', 'append-page-note']),
-  title: z.string().trim().min(1).max(300).optional(),
   content: z.string().trim().min(1).max(20_000),
-}).strict()
+}
+const knowledgeRevisionSaveRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ ...knowledgeRevisionSaveRequestBase, kind: z.literal('replace-page-body'), title: z.string().trim().min(1).max(300) }).strict(),
+  z.object({ ...knowledgeRevisionSaveRequestBase, kind: z.literal('append-page-note') }).strict(),
+])
 const knowledgeRevisionSaveResultSchema = z.discriminatedUnion('outcome', [
   z.object({
     outcome: z.literal('updated'),

@@ -3,6 +3,7 @@ import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CanonicalStoreError } from '../src/canonical.js'
+import { KnowledgeSelectionRevisionConflictError } from '../src/database.js'
 import { MemoryKnowledgeGateway } from '../src/gateway.js'
 import { MEMORY_UI_INVOCATIONS } from '../src/remote-contract.js'
 import type { LocalMemoryEntry, MemoryCandidate, MemoryTrace, RecallableMemoryRecord } from '../src/runtime-model.js'
@@ -341,6 +342,8 @@ function mounted(options: { restrictedTrace?: boolean } = {}) {
         updatedAt: wikiRun.updatedAt,
       },
     })),
+    listKnowledgeHumanRevisions: vi.fn(async () => []),
+    applyKnowledgeHumanRevision: vi.fn(),
     getWikiRunSnapshot: vi.fn(async () => undefined),
     listWikiMaterialReadBudgets: vi.fn(async (): Promise<WikiMaterialBudgetPage> => ({ items: [] })),
     increaseWikiMaterialReadBudget: vi.fn(async (): Promise<WikiMaterialReadBudget> => { throw new Error('未配置测试账本') }),
@@ -616,6 +619,106 @@ describe('memory knowledge UI gateway', () => {
     const descriptor = MEMORY_UI_INVOCATIONS.find(candidate => candidate.method === 'overview')!
     if (descriptor.result.mode !== 'strict') throw new Error('overview result codec must be strict')
     expect(descriptor.result.schema.parse(overview)).toEqual(overview)
+  })
+
+  it('saves one human Wiki revision through the workspace-scoped strict RPC projection', async () => {
+    const { gateway, memoryKnowledge } = mounted()
+    const requestId = 'khreq_11111111-1111-4111-8111-111111111111'
+    const pageId = 'wpage_22222222-2222-4222-8222-222222222222'
+    const generatedVersionId = 'kgv_33333333-3333-4333-8333-333333333333'
+    const baseEffectiveVersionId = 'kev_44444444-4444-4444-8444-444444444444'
+    const revisedEffectiveVersionId = 'kev_55555555-5555-4555-8555-555555555555'
+    const revisionId = 'khr_66666666-6666-4666-8666-666666666666'
+    memoryKnowledge.applyKnowledgeHumanRevision.mockResolvedValue({
+      revision: {
+        schemaVersion: 1,
+        id: revisionId,
+        requestId,
+        requestFingerprint: `sha256:${'7'.repeat(64)}`,
+        revision: 1,
+        projectRoot: projectPath,
+        generatedVersionId,
+        baseEffectiveVersionId,
+        effectiveVersionId: revisedEffectiveVersionId,
+        pageId,
+        kind: 'replace-page-body',
+        title: '人工架构说明',
+        content: '由操作者确认的架构入口。',
+        affectedClaimIds: [],
+        createdAt: wikiRun.updatedAt,
+      },
+      effectiveVersion: {
+        schemaVersion: 1,
+        id: revisedEffectiveVersionId,
+        projectRoot: projectPath,
+        generatedVersionId,
+        runId: wikiRun.id,
+        runSnapshotHash: `sha256:${'8'.repeat(64)}`,
+        humanRevisionIds: [revisionId],
+        createdAt: wikiRun.updatedAt,
+      },
+      selection: {
+        schemaVersion: 1,
+        projectRoot: projectPath,
+        revision: 5,
+        mode: 'fixed',
+        analysisGeneration: 3,
+        currentRunId: wikiRun.id,
+        effectiveVersionId: revisedEffectiveVersionId,
+        updatedAt: wikiRun.updatedAt,
+      },
+    } as never)
+
+    const result = await gateway.saveKnowledgeRevision({
+      workspaceId: String(workspace.id),
+      requestId,
+      expectedSelectionRevision: 4,
+      baseEffectiveVersionId,
+      pageId,
+      kind: 'replace-page-body',
+      title: '人工架构说明',
+      content: '由操作者确认的架构入口。',
+    })
+
+    expect(memoryKnowledge.applyKnowledgeHumanRevision).toHaveBeenCalledWith(expect.objectContaining({
+      projectRoot: projectPath,
+      requestId,
+      expectedSelectionRevision: 4,
+      baseEffectiveVersionId,
+      pageId,
+      kind: 'replace-page-body',
+    }))
+    expect(result).toMatchObject({
+      outcome: 'updated',
+      revision: { id: revisionId, title: '人工架构说明' },
+      knowledgeVersion: {
+        status: 'active',
+        mode: 'fixed',
+        selectionRevision: 5,
+        effectiveVersionId: revisedEffectiveVersionId,
+        humanRevisionCount: 1,
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain(projectPath)
+    const descriptor = MEMORY_UI_INVOCATIONS.find(candidate => candidate.method === 'saveKnowledgeRevision')!
+    if (descriptor.result.mode !== 'strict') throw new Error('knowledge revision result codec must be strict')
+    expect(descriptor.result.schema.parse(result)).toEqual(result)
+  })
+
+  it('returns a conflict when a human Wiki revision was based on an obsolete selection', async () => {
+    const { gateway, memoryKnowledge } = mounted()
+    memoryKnowledge.applyKnowledgeHumanRevision.mockRejectedValue(
+      new KnowledgeSelectionRevisionConflictError(projectPath, 2, 3),
+    )
+    await expect(gateway.saveKnowledgeRevision({
+      workspaceId: String(workspace.id),
+      requestId: 'khreq_77777777-7777-4777-8777-777777777777',
+      expectedSelectionRevision: 2,
+      baseEffectiveVersionId: 'kev_88888888-8888-4888-8888-888888888888',
+      pageId: 'wpage_99999999-9999-4999-8999-999999999999',
+      kind: 'append-page-note',
+      content: '并发保存后的补充说明。',
+    })).resolves.toEqual({ outcome: 'conflict' })
   })
 
   it('never returns restricted trace content to the browser', async () => {
@@ -1052,6 +1155,26 @@ describe('memory knowledge UI gateway', () => {
       runId: String(wikiRun.id),
       projectRoot: projectPath,
     })).toThrow()
+    const saveKnowledgeRevision = MEMORY_UI_INVOCATIONS.find(candidate => candidate.method === 'saveKnowledgeRevision')!
+    const saveKnowledgeRevisionRequest = saveKnowledgeRevision.parameters[0]!.codec
+    if (saveKnowledgeRevisionRequest.mode !== 'strict') throw new Error('knowledge revision request codec must be strict')
+    const revisionRequestBase = {
+      workspaceId: String(workspace.id),
+      requestId: 'khreq_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      expectedSelectionRevision: 1,
+      baseEffectiveVersionId: 'kev_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      pageId: 'wpage_cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      content: '人工说明',
+    }
+    expect(saveKnowledgeRevisionRequest.schema.parse({
+      ...revisionRequestBase,
+      kind: 'replace-page-body',
+      title: '人工标题',
+    })).toMatchObject({ kind: 'replace-page-body', title: '人工标题' })
+    expect(saveKnowledgeRevisionRequest.schema.parse({ ...revisionRequestBase, kind: 'append-page-note' }))
+      .toMatchObject({ kind: 'append-page-note' })
+    expect(() => saveKnowledgeRevisionRequest.schema.parse({ ...revisionRequestBase, kind: 'replace-page-body' })).toThrow()
+    expect(() => saveKnowledgeRevisionRequest.schema.parse({ ...revisionRequestBase, kind: 'append-page-note', title: '不允许' })).toThrow()
     const evidence = MEMORY_UI_INVOCATIONS.find(candidate => candidate.method === 'searchEvidence')!
     const evidenceRequest = evidence.parameters[0]!.codec
     if (evidenceRequest.mode !== 'strict') throw new Error('evidence request codec must be strict')

@@ -309,11 +309,9 @@ function WikiCoverageBar({ run, t }: {
   )
 }
 
-interface KnowledgeRevisionDraft {
-  kind: 'replace-page-body' | 'append-page-note'
-  title?: string
-  content: string
-}
+type KnowledgeRevisionDraft =
+  | { kind: 'replace-page-body'; title: string; content: string }
+  | { kind: 'append-page-note'; title?: never; content: string }
 
 function WikiPageRevisionEditor({ page, busy, onSave, t }: {
   page: MemoryUiWikiTreeResult['pages'][number]
@@ -330,11 +328,10 @@ function WikiPageRevisionEditor({ page, busy, onSave, t }: {
   }
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
-    const saved = await onSave(page.id, {
-      kind,
-      ...(kind === 'replace-page-body' ? { title: title.trim() } : {}),
-      content: content.trim(),
-    })
+    const normalizedContent = content.trim()
+    const saved = await onSave(page.id, kind === 'replace-page-body'
+      ? { kind, title: title.trim(), content: normalizedContent }
+      : { kind, content: normalizedContent })
     if (saved) setEditing(false)
   }
   return (
@@ -359,8 +356,8 @@ function WikiPageRevisionEditor({ page, busy, onSave, t }: {
       </label>
       <p className="mk-warning">{t(kind === 'replace-page-body' ? 'wikiReplaceBodyWarning' : 'wikiAppendNoteNotice')}</p>
       <div className="mk-actions">
-        <Button size="sm" variant="primary" disabled={busy || title.trim() === '' || content.trim() === ''}>{busy ? t('savingWikiRevision') : t('saveWikiRevision')}</Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false) }}>{t('cancel')}</Button>
+        <Button type="submit" size="sm" variant="primary" disabled={busy || content.trim() === '' || (kind === 'replace-page-body' && title.trim() === '')}>{busy ? t('savingWikiRevision') : t('saveWikiRevision')}</Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false) }}>{t('cancel')}</Button>
       </div>
     </form>
   )
@@ -1140,16 +1137,17 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
     const scopedOperation = beginScopedOperation()
     setBusy(`knowledge-revision:${pageId}`)
     try {
-      const result = await saveKnowledgeRevision({
+      const baseRequest = {
         workspaceId,
         requestId: `khreq_${globalThis.crypto.randomUUID()}`,
         expectedSelectionRevision: knowledgeVersion.selectionRevision,
         baseEffectiveVersionId: knowledgeVersion.effectiveVersionId,
         pageId,
-        kind: draft.kind,
-        ...(draft.title === undefined ? {} : { title: draft.title }),
         content: draft.content,
-      })
+      }
+      const result = await saveKnowledgeRevision(draft.kind === 'replace-page-body'
+        ? { ...baseRequest, kind: draft.kind, title: draft.title }
+        : { ...baseRequest, kind: draft.kind })
       if (!operationIsCurrent(scopedOperation)) return false
       if (result.outcome === 'conflict') {
         showToast(t('wikiRevisionConflict'))
@@ -1320,7 +1318,7 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
           t={t}
         />
       ) : null}
-      {state.status === 'ready' && ((domain === 'memory' && memoryView === 'entries') || (domain === 'knowledge' && knowledgeView === 'agent-knowledge' && knowledgeAuxiliaryView === 'closed' && workspaceId !== '')) ? (
+      {state.status === 'ready' && domain === 'memory' && memoryView === 'entries' ? (
         <>
           {domain === 'memory' ? (
             <div className="mk-memory-create">
@@ -1425,9 +1423,6 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
             </aside>
           ) : null}
         </>
-      ) : null}
-      {state.status === 'ready' && domain === 'knowledge' && knowledgeView === 'agent-knowledge' && knowledgeAuxiliaryView === 'closed' && workspaceId !== '' ? (
-        <p className="mk-warning">{t('agentKnowledgeLegacyNotice')}</p>
       ) : null}
       {state.status === 'ready' && domain === 'knowledge' && knowledgeAuxiliaryView === 'analysis' ? (
         workspaceId === '' || state.value.wikiRuns === undefined ? (

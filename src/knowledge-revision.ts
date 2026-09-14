@@ -28,20 +28,22 @@ export const KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION = 1 as const
 /** Explicit meaning selected by the operator before saving free text. */
 export type KnowledgeHumanRevisionKind = 'replace-page-body' | 'append-page-note'
 
-/** One validated save request from an operator editing effective project knowledge. */
-export interface CreateKnowledgeHumanRevisionInput {
+interface KnowledgeHumanRevisionInputBase {
   requestId: KnowledgeHumanRevisionRequestId
   projectRoot: string
   expectedSelectionRevision: number
   baseEffectiveVersionId: KnowledgeEffectiveVersionId
   pageId: WikiPageId
-  kind: KnowledgeHumanRevisionKind
-  title?: string
   content: string
 }
 
-/** One immutable operator edit layered over an immutable generated Wiki version. */
-export interface KnowledgeHumanRevision {
+/** One validated save request from an operator editing effective project knowledge. */
+export type CreateKnowledgeHumanRevisionInput = KnowledgeHumanRevisionInputBase & (
+  | { kind: 'replace-page-body'; title: string }
+  | { kind: 'append-page-note'; title?: never }
+)
+
+interface KnowledgeHumanRevisionBase {
   schemaVersion: typeof KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION
   id: KnowledgeHumanRevisionId
   requestId: KnowledgeHumanRevisionRequestId
@@ -52,12 +54,16 @@ export interface KnowledgeHumanRevision {
   baseEffectiveVersionId: KnowledgeEffectiveVersionId
   effectiveVersionId: KnowledgeEffectiveVersionId
   pageId: WikiPageId
-  kind: KnowledgeHumanRevisionKind
-  title?: string
   content: string
   affectedClaimIds: WikiClaimId[]
   createdAt: string
 }
+
+/** One immutable operator edit layered over an immutable generated Wiki version. */
+export type KnowledgeHumanRevision = KnowledgeHumanRevisionBase & (
+  | { kind: 'replace-page-body'; title: string }
+  | { kind: 'append-page-note'; title?: never }
+)
 
 /** Immutable commit result retained for idempotent save retries. */
 export interface KnowledgeHumanRevisionResult {
@@ -86,18 +92,20 @@ const claimId = z.string().regex(new RegExp(WIKI_CLAIM_ID_PATTERN, 'u')).transfo
 const humanText = z.string().trim().min(1).max(20_000)
 const humanTitle = z.string().trim().min(1).max(300)
 
-const createInputSchema = z.object({
+const createInputBase = {
   requestId,
   projectRoot: absolutePath,
   expectedSelectionRevision: safePositiveInteger,
   baseEffectiveVersionId: effectiveVersionId,
   pageId,
-  kind: z.enum(['replace-page-body', 'append-page-note']),
-  title: humanTitle.optional(),
   content: humanText,
-}).strict()
+}
+const createInputSchema = z.discriminatedUnion('kind', [
+  z.object({ ...createInputBase, kind: z.literal('replace-page-body'), title: humanTitle }).strict(),
+  z.object({ ...createInputBase, kind: z.literal('append-page-note') }).strict(),
+])
 
-const revisionSchema = z.object({
+const revisionBase = {
   schemaVersion: z.literal(KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION),
   id: revisionId,
   requestId,
@@ -108,8 +116,6 @@ const revisionSchema = z.object({
   baseEffectiveVersionId: effectiveVersionId,
   effectiveVersionId,
   pageId,
-  kind: z.enum(['replace-page-body', 'append-page-note']),
-  title: humanTitle.optional(),
   content: humanText,
   affectedClaimIds: z.array(claimId).superRefine((values, context) => {
     if (new Set(values).size !== values.length) {
@@ -117,7 +123,11 @@ const revisionSchema = z.object({
     }
   }),
   createdAt: isoDate,
-}).strict().superRefine((value, context) => {
+}
+const revisionSchema = z.discriminatedUnion('kind', [
+  z.object({ ...revisionBase, kind: z.literal('replace-page-body'), title: humanTitle }).strict(),
+  z.object({ ...revisionBase, kind: z.literal('append-page-note') }).strict(),
+]).superRefine((value, context) => {
   if (value.kind === 'append-page-note' && value.affectedClaimIds.length !== 0) {
     context.addIssue({ code: 'custom', message: 'an appended operator note cannot invalidate generated Claims' })
   }

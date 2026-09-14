@@ -406,8 +406,9 @@ describe('MemoryKnowledgeSection', () => {
     fireEvent.click(screen.getByRole('tab', { name: zh.agentKnowledge }))
     expect(await screen.findByRole('heading', { name: zh.agentKnowledge })).toBeTruthy()
     expect(screen.getByText(zh.agentKnowledgeDraftNotice)).toBeTruthy()
-    expect(await screen.findByText('项目知识标题')).toBeTruthy()
-    expect(screen.getByText(zh.agentKnowledgeLegacyNotice)).toBeTruthy()
+    expect(screen.queryByText('项目知识标题')).toBeNull()
+    expect(screen.queryByText(zh.agentKnowledgeLegacyNotice)).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: zh.searchKnowledge })).toBeNull()
     expect(overview).toHaveBeenCalledWith({ domain: 'knowledge', workspaceId: 'workspace-one' })
     expect(screen.queryByText('长期记忆标题')).toBeNull()
   })
@@ -452,6 +453,113 @@ describe('MemoryKnowledgeSection', () => {
     fireEvent.click(screen.getByRole('tab', { name: zh.agentKnowledge }))
     expect(screen.getByText(zh.agentKnowledgeActiveNotice)).toBeTruthy()
     expect(screen.queryByText(zh.agentKnowledgeDraftNotice)).toBeNull()
+  })
+
+  it('saves a Wiki page revision and reloads the same effective content in both knowledge tabs', async () => {
+    const activeRun: MemoryUiWikiRunSummary = {
+      ...wikiRunValue,
+      id: 'wrun_33333333-3333-4333-8333-333333333333',
+      status: 'complete',
+      rootPageCount: 1,
+    }
+    const baseEffectiveVersionId = 'kev_33333333-3333-4333-8333-333333333333'
+    const revisedEffectiveVersionId = 'kev_44444444-4444-4444-8444-444444444444'
+    let revised = false
+    const knowledgeVersion = () => ({
+      status: 'active' as const,
+      mode: revised ? 'fixed' as const : 'automatic' as const,
+      selectionRevision: revised ? 4 : 3,
+      analysisGeneration: 2,
+      currentRunId: activeRun.id,
+      sourceRunId: activeRun.id,
+      generatedVersionId: 'kgv_33333333-3333-4333-8333-333333333333',
+      effectiveVersionId: revised ? revisedEffectiveVersionId : baseEffectiveVersionId,
+      humanRevisionCount: revised ? 1 : 0,
+    })
+    const overview = vi.fn<MemoryKnowledgeSectionInjected['overview']>(async request => request.domain === 'knowledge'
+      ? { ...overviewValue, selectedWorkspaceId: request.workspaceId, knowledgeVersion: knowledgeVersion(), wikiRuns: [activeRun] }
+      : overviewValue)
+    const wikiTree = vi.fn<MemoryKnowledgeSectionInjected['wikiTree']>(async request => ({
+      runId: request.runId,
+      pageCount: 1,
+      rootPageIds: ['wpage-editor'],
+      pages: [{
+        id: 'wpage-editor',
+        depth: 0,
+        title: revised ? '人工项目入口' : '生成项目入口',
+        status: 'verified',
+        childCount: 0,
+        claimCount: 1,
+        claims: [{
+          id: 'wclaim-editor',
+          kind: 'assertion',
+          status: 'verified',
+          statement: '生成的项目入口说明。',
+          statementTruncated: false,
+          sourceCount: 1,
+          sources: [{ role: 'supports', path: 'README.md', startLine: 1, endLine: 3 }],
+          omittedSourceCount: 0,
+          humanReviewPending: revised,
+        }],
+        omittedClaimCount: 0,
+        ...(revised ? {
+          bodyRevision: {
+            id: 'khr_55555555-5555-4555-8555-555555555555',
+            revision: 1,
+            kind: 'replace-page-body' as const,
+            title: '人工项目入口',
+            content: '人工确认后的项目入口说明。',
+            createdAt: '2026-09-12T00:00:00.000Z',
+          },
+        } : {}),
+        notes: [],
+        omittedNoteCount: 0,
+      }],
+      omittedPageCount: 0,
+      omittedClaimCount: 0,
+      omittedSourceCount: 0,
+    }))
+    const saveKnowledgeRevision = vi.fn<MemoryKnowledgeSectionInjected['saveKnowledgeRevision']>(async () => {
+      revised = true
+      return {
+        outcome: 'updated',
+        revision: {
+          id: 'khr_55555555-5555-4555-8555-555555555555',
+          revision: 1,
+          kind: 'replace-page-body',
+          title: '人工项目入口',
+          content: '人工确认后的项目入口说明。',
+          createdAt: '2026-09-12T00:00:00.000Z',
+        },
+        knowledgeVersion: knowledgeVersion(),
+      }
+    })
+    render(<MemoryKnowledgeSection {...props({ overview, wikiTree, saveKnowledgeRevision }).value} />)
+    await screen.findByText('候选标题')
+    selectKnowledgeProject()
+    fireEvent.click(await screen.findByRole('button', { name: zh.wikiTreeView }))
+    expect(await screen.findByText('生成的项目入口说明。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.editWikiPage }))
+    fireEvent.change(screen.getByRole('textbox', { name: zh.title }), { target: { value: '人工项目入口' } })
+    fireEvent.change(screen.getByRole('textbox', { name: zh.wikiHumanBody }), { target: { value: '人工确认后的项目入口说明。' } })
+    fireEvent.click(screen.getByRole('button', { name: zh.saveWikiRevision }))
+
+    await waitFor(() => expect(saveKnowledgeRevision).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: 'workspace-one',
+      requestId: expect.stringMatching(/^khreq_/u),
+      expectedSelectionRevision: 3,
+      baseEffectiveVersionId,
+      pageId: 'wpage-editor',
+      kind: 'replace-page-body',
+      title: '人工项目入口',
+      content: '人工确认后的项目入口说明。',
+    })))
+    expect(await screen.findByText(zh.wikiRevisionSaved)).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: zh.wikiTreeView }))
+    expect(await screen.findByText('人工确认后的项目入口说明。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: zh.agentKnowledge }))
+    expect(screen.getByText('人工确认后的项目入口说明。')).toBeTruthy()
+    expect(screen.getByText(zh.wikiClaimHumanReviewPending)).toBeTruthy()
   })
 
   it('associates each tab with its panel and supports arrow-key navigation', async () => {
