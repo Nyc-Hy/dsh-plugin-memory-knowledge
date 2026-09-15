@@ -20,7 +20,9 @@ import {
   finalizeWikiRunSnapshot,
   MAX_WIKI_PAGE_SLUG_CHARACTERS,
   MAX_WIKI_PAGE_TITLE_CHARACTERS,
+  createPendingWikiModelInputAudit,
   summarizeWikiCoverage,
+  summarizeWikiMaterialExposure,
   summarizeWikiMaterialRanges,
   summarizeWikiTasks,
   type WikiCitation,
@@ -29,6 +31,7 @@ import {
   type WikiConsistencyConfig,
   type WikiCoverageItem,
   type WikiFileSynthesisConfig,
+  type WikiModelInputAudit,
   type WikiPage,
   type WikiPageConfig,
   type WikiRunSnapshot,
@@ -222,6 +225,7 @@ export function startWikiTask(
     next.agentSessionId = agentSessionId
     next.startedAt = timestamp
     next.updatedAt = timestamp
+    next.modelInputAudit = createPendingWikiModelInputAudit()
     delete next.completedAt
     delete next.failure
     return next
@@ -235,6 +239,7 @@ export function startWikiTask(
       : 'verifying'
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -292,6 +297,7 @@ export function failWikiTask(
         : 'verifying'
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   run.failure = normalizedFailure
@@ -318,6 +324,7 @@ export function succeedWikiTask(
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
   fileSynthesisConfig: WikiFileSynthesisConfig = DEFAULT_WIKI_FILE_SYNTHESIS_CONFIG,
+  modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
   const current = taskById(snapshot, id)
@@ -367,6 +374,7 @@ export function succeedWikiTask(
     : {
         ...structuredClone(task),
         status: 'succeeded',
+        modelInputAudit: structuredClone(modelInputAudit ?? current.modelInputAudit),
         updatedAt: timestamp,
         completedAt: timestamp,
       })
@@ -405,6 +413,7 @@ export function succeedWikiTask(
   }
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.failure
@@ -429,6 +438,7 @@ export function succeedWikiFileSynthesisTask(
   verificationBatchClaims = DEFAULT_WIKI_VERIFICATION_BATCH_CLAIMS,
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
+  modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
   const current = taskById(snapshot, id)
@@ -473,6 +483,7 @@ export function succeedWikiFileSynthesisTask(
     : {
         ...structuredClone(task),
         status: 'succeeded',
+        modelInputAudit: structuredClone(modelInputAudit ?? current.modelInputAudit),
         updatedAt: timestamp,
         completedAt: timestamp,
       })
@@ -496,6 +507,7 @@ export function succeedWikiFileSynthesisTask(
     )
   }
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -520,6 +532,7 @@ export function succeedWikiVerificationTask(
   now = new Date().toISOString(),
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
+  modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
   const current = taskById(snapshot, id)
@@ -563,6 +576,7 @@ export function succeedWikiVerificationTask(
     : {
         ...structuredClone(task),
         status: 'succeeded',
+        modelInputAudit: structuredClone(modelInputAudit ?? current.modelInputAudit),
         updatedAt: timestamp,
         completedAt: timestamp,
       })
@@ -592,6 +606,7 @@ export function succeedWikiVerificationTask(
     run.status = 'verifying'
   }
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -760,6 +775,7 @@ export function succeedWikiPageTask(
     run.status = 'synthesizing'
   }
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt

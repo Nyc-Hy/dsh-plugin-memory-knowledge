@@ -120,6 +120,7 @@ import type { SourceSymbolReferenceKind } from './source-symbols.js'
 import {
   createUnplannedWikiConsistencySummary,
   createUnassessedWikiFileSynthesisSummary,
+  createUnsupportedWikiModelInputAudit,
   createUnplannedWikiPageGenerationSummary,
   createWikiConsistencyTasks,
   createWikiPageTasks,
@@ -128,6 +129,7 @@ import {
   parseWikiRun,
   parseWikiRunSnapshot,
   summarizeWikiMaterialRanges,
+  summarizeWikiMaterialExposure,
   summarizeWikiTasks,
   wikiTaskId,
   WIKI_RUN_SCHEMA_VERSION,
@@ -137,7 +139,7 @@ import {
 } from './wiki-model.js'
 
 /** Current local candidate/search database schema. */
-export const MEMORY_DATABASE_SCHEMA_VERSION = 24
+export const MEMORY_DATABASE_SCHEMA_VERSION = 25
 
 const SOURCE_RECORD_REBUILD_SCHEMA_VERSION = 3
 const SOURCE_RECORD_SCHEMA_VERSION = 4
@@ -160,6 +162,7 @@ const PRE_KNOWLEDGE_VERSION_SCHEMA_VERSION = 20
 const PRE_LOCAL_MEMORY_ENTRY_SCHEMA_VERSION = 21
 const PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION = 22
 const PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION = 23
+const WIKI_RUNTIME_V8_SCHEMA_VERSION = 24
 
 /** SQLite application id protecting unrelated files from memory schema writes. */
 export const MEMORY_DATABASE_APPLICATION_ID = 0x44534d4b
@@ -457,6 +460,7 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         PRE_LOCAL_MEMORY_ENTRY_SCHEMA_VERSION,
         PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION,
         PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION,
+        WIKI_RUNTIME_V8_SCHEMA_VERSION,
         MEMORY_DATABASE_SCHEMA_VERSION,
       ].includes(version)) {
       throw new Error(
@@ -494,6 +498,11 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
       }
       if (applicationId === MEMORY_DATABASE_APPLICATION_ID && version === WIKI_RUNTIME_V7_SCHEMA_VERSION) {
         migrateWikiRuntimeV7(database)
+      }
+      if (applicationId === MEMORY_DATABASE_APPLICATION_ID
+        && version >= PRE_MATERIAL_BUDGET_SCHEMA_VERSION
+        && version <= WIKI_RUNTIME_V8_SCHEMA_VERSION) {
+        migrateWikiRuntimeV8(database)
       }
       if (applicationId === MEMORY_DATABASE_APPLICATION_ID
         && version >= SOURCE_RECORD_REBUILD_SCHEMA_VERSION
@@ -910,7 +919,19 @@ function wikiRunSnapshotFromDatabase(database: DatabaseSync, id: WikiRunId): Wik
 
 function wikiTaskWithEmptyMaterialRanges(value: unknown, label: string): WikiShardTask {
   if (!isRecord(value)) throw new Error(`memory-knowledge: ${label} task cannot be migrated`)
-  return { ...structuredClone(value), materialRanges: [] } as unknown as WikiShardTask
+  return {
+    ...structuredClone(value),
+    materialRanges: [],
+    modelInputAudit: createUnsupportedWikiModelInputAudit(),
+  } as unknown as WikiShardTask
+}
+
+function wikiTaskWithUnsupportedModelInput(value: unknown, label: string): WikiShardTask {
+  if (!isRecord(value)) throw new Error(`memory-knowledge: ${label} task cannot be migrated`)
+  return {
+    ...structuredClone(value),
+    modelInputAudit: createUnsupportedWikiModelInputAudit(),
+  } as unknown as WikiShardTask
 }
 
 function wikiClaimWithEmptySources(value: unknown, label: string): WikiRunSnapshot['claims'][number] {
@@ -1059,6 +1080,7 @@ function migrateWikiRuntimeV1(database: DatabaseSync): void {
           claimIds: [],
           candidatePairs: [],
           materialRanges: [],
+          modelInputAudit: createUnsupportedWikiModelInputAudit(),
           status: 'planned',
           attemptCount: 0,
           createdAt: String(rawRun['createdAt']),
@@ -1070,6 +1092,7 @@ function migrateWikiRuntimeV1(database: DatabaseSync): void {
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     migratedRun['consistency'] = createUnplannedWikiConsistencySummary()
     migratedRun['pageGeneration'] = createUnplannedWikiPageGenerationSummary()
@@ -1134,6 +1157,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
         claimIds: [],
         candidatePairs: [],
         materialRanges: [],
+        modelInputAudit: createUnsupportedWikiModelInputAudit(),
       } as unknown as WikiShardTask
     })
     const claims = wikiChildPayloads(database, 'wiki_claims', runId)
@@ -1179,6 +1203,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
     }
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1239,7 +1264,12 @@ function migrateWikiRuntimeV3(database: DatabaseSync): void {
       if (!isRecord(value) || typeof value['kind'] !== 'string' || !Array.isArray(value['claimIds'])) {
         throw new Error('memory-knowledge: Wiki v3 task cannot be migrated')
       }
-      return { ...structuredClone(value), candidatePairs: [], materialRanges: [] } as unknown as WikiShardTask
+      return {
+        ...structuredClone(value),
+        candidatePairs: [],
+        materialRanges: [],
+        modelInputAudit: createUnsupportedWikiModelInputAudit(),
+      } as unknown as WikiShardTask
     })
     const migratedRun = structuredClone(rawRun)
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
@@ -1275,6 +1305,7 @@ function migrateWikiRuntimeV3(database: DatabaseSync): void {
     }
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1353,6 +1384,7 @@ function migrateWikiRuntimeV4(database: DatabaseSync): void {
     }
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1402,6 +1434,7 @@ function migrateWikiRuntimeV5(database: DatabaseSync): void {
     const migratedRun = structuredClone(rawRun)
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
@@ -1435,26 +1468,31 @@ function migrateWikiRuntimeV6(database: DatabaseSync): void {
     SET status = ?, catalog_hash = ?, snapshot_hash = ?, updated_at = ?, payload_json = ?
     WHERE id = ?
   `)
+  const updateTask = database.prepare('UPDATE wiki_tasks SET payload_json = ? WHERE run_id = ? AND id = ?')
   for (const row of rows) {
     const rawRun = parseJson('Wiki v6 run row', row.payload_json)
     if (!isRecord(rawRun) || rawRun['schemaVersion'] !== 6 || rawRun['id'] !== row.id) {
       throw new Error('memory-knowledge: Wiki v6 run cannot be migrated')
     }
     const runId = WikiRunId(row.id)
+    const tasks = wikiChildPayloads(database, 'wiki_tasks', runId)
+      .map(value => wikiTaskWithUnsupportedModelInput(value, 'Wiki v6'))
     const migratedRun = structuredClone(rawRun)
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
+    migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
-      tasks: wikiChildPayloads(database, 'wiki_tasks', runId) as WikiRunSnapshot['tasks'],
+      tasks,
       citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
       claims: wikiChildPayloads(database, 'wiki_claims', runId)
         .map(value => wikiClaimWithEmptySources(value, 'Wiki v6')),
       conflicts: wikiChildPayloads(database, 'wiki_conflicts', runId) as WikiRunSnapshot['conflicts'],
       pages: wikiChildPayloads(database, 'wiki_pages', runId) as WikiRunSnapshot['pages'],
     })
+    for (const task of migrated.tasks) updateTask.run(JSON.stringify(task), runId, task.id)
     updateWikiClaimPayloads(database, runId, migrated.claims)
     updateRun.run(
       migrated.run.status,
@@ -1476,7 +1514,8 @@ function migrateWikiRuntimeV7(database: DatabaseSync): void {
       throw new Error('memory-knowledge: Wiki v7 run cannot be migrated')
     }
     const runId = WikiRunId(row.id)
-    const tasks = wikiChildPayloads(database, 'wiki_tasks', runId) as WikiShardTask[]
+    const tasks = wikiChildPayloads(database, 'wiki_tasks', runId)
+      .map(value => wikiTaskWithUnsupportedModelInput(value, 'Wiki v7'))
     const byFile = Map.groupBy(tasks.filter(task => task.kind === 'file-synthesis'), task => String(task.coverageIds[0]))
     for (const fileTasks of byFile.values()) {
       fileTasks.sort((left, right) => compareText(left.shardKey, right.shardKey))
@@ -1496,7 +1535,8 @@ function migrateWikiRuntimeV7(database: DatabaseSync): void {
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: { ...rawRun, schemaVersion: WIKI_RUN_SCHEMA_VERSION,
-        fileSynthesis: createUnassessedWikiFileSynthesisSummary(tasks) } as unknown as WikiRun,
+        fileSynthesis: createUnassessedWikiFileSynthesisSummary(tasks),
+        materialExposure: summarizeWikiMaterialExposure(tasks) } as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
       tasks, claims,
       citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
@@ -1510,6 +1550,45 @@ function migrateWikiRuntimeV7(database: DatabaseSync): void {
     updateWikiClaimPayloads(database, runId, claims)
     database.prepare('UPDATE wiki_runs SET snapshot_hash = ?, payload_json = ? WHERE id = ?')
       .run(migrated.snapshotHash, JSON.stringify(migrated.run), runId)
+  }
+}
+
+function migrateWikiRuntimeV8(database: DatabaseSync): void {
+  const rows = database.prepare('SELECT id, payload_json FROM wiki_runs ORDER BY id ASC')
+    .all() as Array<{ id: string; payload_json: string }>
+  const updateTask = database.prepare('UPDATE wiki_tasks SET payload_json = ? WHERE run_id = ? AND id = ?')
+  const updateRun = database.prepare('UPDATE wiki_runs SET snapshot_hash = ?, payload_json = ? WHERE id = ?')
+  for (const row of rows) {
+    const rawRun = parseJson('Wiki v8 run row', row.payload_json)
+    if (!isRecord(rawRun) || rawRun['id'] !== row.id) {
+      throw new Error('memory-knowledge: Wiki v8 run cannot be migrated')
+    }
+    const runId = WikiRunId(row.id)
+    if (rawRun['schemaVersion'] === WIKI_RUN_SCHEMA_VERSION) {
+      if (wikiRunSnapshotFromDatabase(database, runId) === undefined) {
+        throw new Error('memory-knowledge: current Wiki run disappeared during migration')
+      }
+      continue
+    }
+    if (rawRun['schemaVersion'] !== 8) throw new Error('memory-knowledge: Wiki v8 run cannot be migrated')
+    const tasks = wikiChildPayloads(database, 'wiki_tasks', runId)
+      .map(value => wikiTaskWithUnsupportedModelInput(value, 'Wiki v8'))
+    const migrated = finalizeWikiRunSnapshot({
+      schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+      run: {
+        ...rawRun,
+        schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+        materialExposure: summarizeWikiMaterialExposure(tasks),
+      } as unknown as WikiRun,
+      coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
+      tasks,
+      citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
+      claims: wikiChildPayloads(database, 'wiki_claims', runId) as WikiRunSnapshot['claims'],
+      conflicts: wikiChildPayloads(database, 'wiki_conflicts', runId) as WikiRunSnapshot['conflicts'],
+      pages: wikiChildPayloads(database, 'wiki_pages', runId) as WikiRunSnapshot['pages'],
+    })
+    for (const task of migrated.tasks) updateTask.run(JSON.stringify(task), runId, task.id)
+    updateRun.run(migrated.snapshotHash, JSON.stringify(migrated.run), runId)
   }
 }
 

@@ -27,7 +27,10 @@ import type { ProvenanceRef } from './model.js'
 import { assertProvenanceRefs, PORTABLE_RELATIVE_PATH_PATTERN } from './schema.js'
 
 /** Current local LLM Wiki runtime format. */
-export const WIKI_RUN_SCHEMA_VERSION = 8 as const
+export const WIKI_RUN_SCHEMA_VERSION = 9 as const
+
+/** Version of the final Provider-request material exposure audit. */
+export const WIKI_MODEL_INPUT_AUDIT_RULES_VERSION = 1
 
 /** Language-neutral metadata budgets for natural Wiki analysis shards. */
 export interface WikiShardConfig {
@@ -236,6 +239,45 @@ export interface WikiPageGenerationSummary {
   taskCount: number
 }
 
+/** One immutable project material identity observed in a successful model request. */
+export interface WikiMaterialExposure {
+  coverageId: WikiCoverageId
+  contentHash: string
+  rangeId?: WikiMaterialRangeId
+  rangeHash?: string
+}
+
+/** Audit of the successful model request that produced one task submission. */
+export type WikiModelInputAudit = {
+  rulesVersion: 0
+  state: 'unsupported'
+  material: []
+} | {
+  rulesVersion: typeof WIKI_MODEL_INPUT_AUDIT_RULES_VERSION
+  state: 'pending'
+  material: []
+} | {
+  rulesVersion: typeof WIKI_MODEL_INPUT_AUDIT_RULES_VERSION
+  state: 'verified'
+  provider: string
+  model: string
+  submissionCallId: string
+  requestMessageCount: number
+  requestLastMessageId: string
+  requestMessagesHash: string
+  material: WikiMaterialExposure[]
+  recordedAt: string
+}
+
+/** Exact activation totals for material-bearing Wiki tasks. */
+export interface WikiMaterialExposureSummary {
+  rulesVersion: typeof WIKI_MODEL_INPUT_AUDIT_RULES_VERSION
+  requiredTaskCount: number
+  verifiedTaskCount: number
+  pendingTaskCount: number
+  unsupportedTaskCount: number
+}
+
 /** One bounded shard task owned by exactly one durable Agent Session. */
 export interface WikiShardTask {
   id: WikiTaskId
@@ -247,6 +289,7 @@ export interface WikiShardTask {
   candidatePairs: WikiConsistencyCandidatePair[]
   materialRanges: WikiMaterialRange[]
   fileSynthesis?: WikiFileSynthesisTaskState
+  modelInputAudit: WikiModelInputAudit
   status: WikiTaskStatus
   attemptCount: number
   agentSessionId?: SessionId
@@ -290,6 +333,7 @@ export interface WikiRun {
   catalogOmittedItemCount: number | null
   coverage: WikiCoverageSummary
   materialRanges: WikiMaterialRangeSummary
+  materialExposure: WikiMaterialExposureSummary
   tasks: WikiTaskSummary
   fileSynthesis: WikiFileSynthesisSummary
   consistency: WikiConsistencySummary
@@ -579,6 +623,38 @@ const fileSynthesisSummarySchema = z.object({
   }
 })
 
+const materialExposureSchema = z.object({
+  coverageId,
+  contentHash: sha256,
+  rangeId: materialRangeId.optional(),
+  rangeHash: sha256.optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.rangeId === undefined) !== (value.rangeHash === undefined)) {
+    context.addIssue({ code: 'custom', message: 'Wiki material exposure range identity is incomplete' })
+  }
+})
+
+const modelInputAuditSchema = z.discriminatedUnion('state', [
+  z.object({ rulesVersion: z.literal(0), state: z.literal('unsupported'), material: z.tuple([]) }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_MODEL_INPUT_AUDIT_RULES_VERSION),
+    state: z.literal('pending'),
+    material: z.tuple([]),
+  }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_MODEL_INPUT_AUDIT_RULES_VERSION),
+    state: z.literal('verified'),
+    provider: nonEmpty,
+    model: nonEmpty,
+    submissionCallId: nonEmpty,
+    requestMessageCount: positiveOrZeroInteger.refine(value => value >= 1),
+    requestLastMessageId: nonEmpty,
+    requestMessagesHash: sha256,
+    material: z.array(materialExposureSchema).min(1),
+    recordedAt: isoDate,
+  }).strict(),
+])
+
 const taskSchema = z.object({
   id: taskId,
   runId,
@@ -599,6 +675,7 @@ const taskSchema = z.object({
     batchCount: positiveOrZeroInteger.refine(value => value >= 1),
     outcome: z.enum(['complete', 'no-reduction', 'level-limit']).optional(),
   }).strict().optional(),
+  modelInputAudit: modelInputAuditSchema,
   status: z.enum(['planned', 'running', 'succeeded', 'failed', 'cancelled']),
   attemptCount: positiveOrZeroInteger,
   agentSessionId: sessionId.optional(),
@@ -653,6 +730,9 @@ const taskSchema = z.object({
   if ((value.status === 'failed') !== (value.failure !== undefined)) {
     context.addIssue({ code: 'custom', message: 'Wiki task failure detail is inconsistent with status' })
   }
+  if (value.modelInputAudit.state === 'verified' && value.status !== 'succeeded') {
+    context.addIssue({ code: 'custom', message: 'only a succeeded Wiki task may retain verified model input' })
+  }
 })
 
 const taskSummarySchema = z.object({
@@ -663,6 +743,18 @@ const taskSummarySchema = z.object({
   failed: positiveOrZeroInteger,
   cancelled: positiveOrZeroInteger,
 }).strict()
+
+const materialExposureSummarySchema = z.object({
+  rulesVersion: z.literal(WIKI_MODEL_INPUT_AUDIT_RULES_VERSION),
+  requiredTaskCount: positiveOrZeroInteger,
+  verifiedTaskCount: positiveOrZeroInteger,
+  pendingTaskCount: positiveOrZeroInteger,
+  unsupportedTaskCount: positiveOrZeroInteger,
+}).strict().superRefine((value, context) => {
+  if (value.requiredTaskCount !== value.verifiedTaskCount + value.pendingTaskCount + value.unsupportedTaskCount) {
+    context.addIssue({ code: 'custom', message: 'Wiki material exposure task totals are inconsistent' })
+  }
+})
 
 const consistencySummarySchema = z.object({
   rulesVersion: positiveOrZeroInteger,
@@ -717,6 +809,7 @@ const runSchema = z.object({
   catalogOmittedItemCount: positiveOrZeroInteger.nullable(),
   coverage: coverageSummarySchema,
   materialRanges: materialRangeSummarySchema,
+  materialExposure: materialExposureSummarySchema,
   tasks: taskSummarySchema,
   fileSynthesis: fileSynthesisSummarySchema,
   consistency: consistencySummarySchema,
@@ -960,6 +1053,10 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   if (JSON.stringify(snapshot.run.materialRanges) !== JSON.stringify(expectedMaterialRanges)) {
     throw new Error('memory-knowledge: Wiki material range summary is inconsistent')
   }
+  const expectedMaterialExposure = summarizeWikiMaterialExposure(snapshot.tasks)
+  if (JSON.stringify(snapshot.run.materialExposure) !== JSON.stringify(expectedMaterialExposure)) {
+    throw new Error('memory-knowledge: Wiki material exposure summary is inconsistent')
+  }
 
   const coverageById = new Map(snapshot.coverage.map(value => [String(value.id), value]))
   const claimById = new Map(snapshot.claims.map(value => [String(value.id), value]))
@@ -978,6 +1075,14 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
     }
     if (taskShardKeys.has(task.shardKey)) throw new Error('memory-knowledge: duplicate Wiki task shard')
     taskShardKeys.add(task.shardKey)
+    const exposureKeys = new Set<string>()
+    for (const exposure of task.modelInputAudit.material) {
+      const key = `${exposure.coverageId}\0${exposure.rangeId ?? ''}`
+      if (exposureKeys.has(key) || !task.coverageIds.includes(exposure.coverageId)) {
+        throw new Error('memory-knowledge: Wiki model input exposure is duplicated or outside its task')
+      }
+      exposureKeys.add(key)
+    }
     const taskCoverage = task.coverageIds.map(id => coverageById.get(String(id)))
     if (taskCoverage.some(item => item === undefined)) {
       throw new Error('memory-knowledge: Wiki task references missing project coverage')
@@ -1070,6 +1175,23 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
         ? item?.status !== 'analyzing' && item?.status !== 'analyzed'
         : item?.status !== 'analyzed' && item?.status !== 'deferred')) {
       throw new Error('memory-knowledge: a succeeded Wiki task requires analyzed or explicitly deferred coverage')
+    }
+  }
+  for (const task of snapshot.tasks) {
+    for (const exposure of task.modelInputAudit.material) {
+      const coverage = coverageById.get(String(exposure.coverageId))!
+      const expectedContentHash = coverage.preparedContentHash ?? coverage.analyzedContentHash
+      if (expectedContentHash === undefined || exposure.contentHash !== expectedContentHash) {
+        throw new Error('memory-knowledge: Wiki model input exposure has a stale object hash')
+      }
+      if (exposure.rangeId !== undefined) {
+        const materialRange = materialRangeById.get(String(exposure.rangeId))
+        if (materialRange === undefined || materialRange.task.id !== task.id
+          || materialRange.range.coverageId !== exposure.coverageId
+          || materialRange.range.contentHash !== exposure.rangeHash) {
+          throw new Error('memory-knowledge: Wiki model input exposure has a stale material range')
+        }
+      }
     }
   }
   for (const [coverageKey, rangeTasks] of rangeTasksByCoverage) {
@@ -1521,6 +1643,28 @@ export function summarizeWikiTasks(tasks: readonly WikiShardTask[]): WikiTaskSum
   return summary
 }
 
+/** Create the audit state for a task that has not yet submitted a model-derived result. */
+export function createPendingWikiModelInputAudit(): WikiModelInputAudit {
+  return { rulesVersion: WIKI_MODEL_INPUT_AUDIT_RULES_VERSION, state: 'pending', material: [] }
+}
+
+/** Create the explicit legacy state for a task whose final model request was never observed. */
+export function createUnsupportedWikiModelInputAudit(): WikiModelInputAudit {
+  return { rulesVersion: 0, state: 'unsupported', material: [] }
+}
+
+/** Recompute activation totals for every task whose result depends on raw project material. */
+export function summarizeWikiMaterialExposure(tasks: readonly WikiShardTask[]): WikiMaterialExposureSummary {
+  const required = tasks.filter(task => task.kind !== 'page')
+  return {
+    rulesVersion: WIKI_MODEL_INPUT_AUDIT_RULES_VERSION,
+    requiredTaskCount: required.length,
+    verifiedTaskCount: required.filter(task => task.modelInputAudit.state === 'verified').length,
+    pendingTaskCount: required.filter(task => task.modelInputAudit.state === 'pending').length,
+    unsupportedTaskCount: required.filter(task => task.modelInputAudit.state === 'unsupported').length,
+  }
+}
+
 /** Recompute exact large-file range progress from durable analysis tasks. */
 export function summarizeWikiMaterialRanges(tasks: readonly WikiShardTask[]): WikiMaterialRangeSummary {
   const summary: WikiMaterialRangeSummary = {
@@ -1578,6 +1722,20 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
     && run.consistency.omittedCandidatePairCount === 0
     && postVerificationState
   const pagesComplete = terminalPageState && run.pageGeneration.planned && run.rootPageIds.length > 0
+  const materialExposure: WikiCompletionCheck = run.materialExposure.unsupportedTaskCount > 0
+    ? {
+        id: 'material-exposure',
+        state: 'unsupported',
+        issueCount: run.materialExposure.unsupportedTaskCount,
+      }
+    : run.materialExposure.pendingTaskCount === 0
+      && run.materialExposure.verifiedTaskCount === run.materialExposure.requiredTaskCount
+      ? { id: 'material-exposure', state: 'pass', issueCount: 0 }
+      : {
+          id: 'material-exposure',
+          state: 'fail',
+          issueCount: Math.max(1, run.materialExposure.pendingTaskCount),
+        }
   const checks: WikiCompletionCheck[] = [{
     id: 'catalog',
     state: catalogComplete ? 'pass' : 'fail',
@@ -1602,11 +1760,7 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
     id: 'pages',
     state: pagesComplete ? 'pass' : 'fail',
     issueCount: pagesComplete ? 0 : 1,
-  }, {
-    id: 'material-exposure',
-    state: 'unsupported',
-    issueCount: 1,
-  }, {
+  }, materialExposure, {
     id: 'business-questions',
     state: 'unsupported',
     issueCount: 1,
@@ -1731,6 +1885,7 @@ function planFileSynthesisLayer(
       claimIds: assigned.map(claim => claim.id).sort((left, right) => compareText(String(left), String(right))),
       candidatePairs: [], materialRanges: [],
       fileSynthesis: { level, batchIndex: index, batchCount: batches.length },
+      modelInputAudit: createPendingWikiModelInputAudit(),
       status: 'planned', attemptCount: 0, createdAt: now, updatedAt: now,
     }
   })
@@ -1985,6 +2140,7 @@ export function createWikiVerificationTasks(
       claimIds: values.map(claim => claim.id).sort((left, right) => compareText(String(left), String(right))),
       candidatePairs: [],
       materialRanges: [],
+      modelInputAudit: createPendingWikiModelInputAudit(),
       status: 'planned',
       attemptCount: 0,
       createdAt: now,
@@ -2051,6 +2207,7 @@ export function createWikiPageTasks(
         claimIds: assigned.map(claim => claim.id).sort((left, right) => compareText(String(left), String(right))),
         candidatePairs: [],
         materialRanges: [],
+        modelInputAudit: createPendingWikiModelInputAudit(),
         status: 'planned',
         attemptCount: 0,
         createdAt: now,
@@ -2208,6 +2365,7 @@ export function createWikiConsistencyTasks(
       claimIds,
       candidatePairs: pairs,
       materialRanges: [],
+      modelInputAudit: createPendingWikiModelInputAudit(),
       status: 'planned',
       attemptCount: 0,
       createdAt: now,
@@ -2489,6 +2647,7 @@ export function createPlannedWikiRun(
         claimIds: [],
         candidatePairs: [],
         materialRanges: [],
+        modelInputAudit: createPendingWikiModelInputAudit(),
         status: 'planned',
         attemptCount: 0,
         createdAt: timestamp,
@@ -2508,6 +2667,7 @@ export function createPlannedWikiRun(
           claimIds: [],
           candidatePairs: [],
           materialRanges: [range],
+          modelInputAudit: createPendingWikiModelInputAudit(),
           status: 'planned',
           attemptCount: 0,
           createdAt: timestamp,
@@ -2527,6 +2687,7 @@ export function createPlannedWikiRun(
     catalogOmittedItemCount: input.catalogOmittedItemCount,
     coverage: summarizeWikiCoverage(coverage),
     materialRanges: summarizeWikiMaterialRanges(tasks),
+    materialExposure: summarizeWikiMaterialExposure(tasks),
     tasks: summarizeWikiTasks(tasks),
     fileSynthesis: createUnplannedWikiFileSynthesisSummary(),
     consistency: createUnplannedWikiConsistencySummary(),
@@ -2543,6 +2704,7 @@ export function createPlannedWikiRun(
     ).summary
     run.tasks = summarizeWikiTasks(tasks)
     run.materialRanges = summarizeWikiMaterialRanges(tasks)
+    run.materialExposure = summarizeWikiMaterialExposure(tasks)
     run.status = tasks.length > 0 ? 'verifying' : 'planned'
   }
   return finalizeWikiRunSnapshot({

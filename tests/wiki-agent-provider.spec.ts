@@ -3,7 +3,14 @@ import { realpath } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox, type Agent, type AgentHandle, type CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import { CallId as ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import {
+  CallId as ToolCallId,
+  createToolResultMessage,
+  markAgentLoopRequest,
+  type StreamChunk,
+  type ToolResultMessage,
+  type UserMessage,
+} from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -40,13 +47,17 @@ async function bench(
     startByte: number
     endByte: number
   }> = {},
-  providerConfig: WikiAgentConfig & { ranged?: boolean; twoRanges?: boolean } = {},
+  providerConfig: WikiAgentConfig & {
+    ranged?: boolean
+    twoRanges?: boolean
+    auditModelInputs?: boolean | 'mismatched-call'
+  } = {},
 ): Promise<{ ctx: Context; store: MemoryKnowledgeEngine; planned: WikiRunSnapshot; current(): WikiRunSnapshot; reads(): number; resumes(): number }> {
   const root = await realpath(await makeTempProject())
   const bytes = new TextEncoder().encode(content)
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
   const contentLineCount = Math.max(1, content.split('\n').length - (content.endsWith('\n') ? 1 : 0))
-  const { ranged = false, twoRanges = false, ...wikiProviderConfig } = providerConfig
+  const { ranged = false, twoRanges = false, auditModelInputs = false, ...wikiProviderConfig } = providerConfig
   const newline = bytes.indexOf(10) + 1
   if (twoRanges && (newline <= 0 || newline >= bytes.byteLength)) {
     throw new Error('two-range Wiki Agent tests require at least two non-empty lines')
@@ -215,6 +226,47 @@ async function bench(
         whenIdle: () => idle,
       } satisfies Partial<Agent>)
       await options.setup?.(agentCtx)
+      if (auditModelInputs) {
+        const materialResults: ToolResultMessage[] = []
+        agentCtx.on('tools/result', (exec, result) => {
+          if (exec.name !== 'wiki_material_read' || result.isError) return
+          materialResults.push(createToolResultMessage({
+            callId: exec.callId,
+            content: result.content,
+            isError: false,
+          }))
+        })
+        agentCtx.on('tools/execute', async (exec, next) => {
+          if (!['wiki_task_submit', 'wiki_file_synthesis_submit', 'wiki_verification_submit'].includes(exec.name)) {
+            return next()
+          }
+          const request = markAgentLoopRequest({
+            provider: 'test-provider',
+            model: 'test-model',
+            messages: materialResults,
+            sessionId: agent.session.id,
+          })
+          const chunks = (async function* (): AsyncIterable<StreamChunk> {
+            const block = {
+              type: 'tool-call' as const,
+              id: auditModelInputs === 'mismatched-call' ? ToolCallId('different-observed-submit') : exec.callId,
+              name: exec.name,
+              arguments: '{}',
+            }
+            yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+            yield { type: 'block-end', index: 0, block }
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          })()
+          const stream = agentCtx.waterfall(
+            agentCtx as never,
+            'llm/stream',
+            request,
+            () => chunks,
+          ) as AsyncIterable<StreamChunk>
+          for await (const _chunk of stream) { /* drain the observed successful request */ }
+          return next()
+        })
+      }
       return { agent, dispose: () => scope.dispose() }
   }
   ctx.agents.setFactory({
@@ -243,6 +295,85 @@ afterEach(async () => {
 })
 
 describe('durable Wiki Agent provider', () => {
+  it('persists the exact successful Provider request that exposed task material', async () => {
+    const test = await bench('模型最终请求中的项目事实。\n', async (agent, message, planned) => {
+      const coverageId = planned.coverage[0]!.id
+      const read = await agent.ctx.tools.execute({
+        name: 'wiki_material_read',
+        arguments: { coverageId },
+        agent,
+        callId: ToolCallId('audited-material-read'),
+        signal: new AbortController().signal,
+      })
+      expect(read.isError).toBe(false)
+      const submit = await agent.ctx.tools.execute({
+        name: 'wiki_task_submit',
+        arguments: {
+          coverage: [{ coverageId, outcome: 'analyzed' }],
+          citations: [],
+          claims: [],
+        },
+        agent,
+        callId: ToolCallId('audited-task-submit'),
+        signal: new AbortController().signal,
+      })
+      expect(submit.isError).toBe(false)
+      appendCompletedTurn(agent.session, message)
+    }, {}, { auditModelInputs: true })
+
+    const result = await test.ctx.wikiGeneration.runNext(test.planned.run.projectRoot)
+    expect(result.tasks[0]!.modelInputAudit).toMatchObject({
+      rulesVersion: 1,
+      state: 'verified',
+      provider: 'test-provider',
+      model: 'test-model',
+      submissionCallId: 'audited-task-submit',
+      requestMessageCount: 1,
+      requestLastMessageId: expect.any(String),
+      requestMessagesHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      material: [{
+        coverageId: result.coverage[0]!.id,
+        contentHash: result.coverage[0]!.analyzedContentHash,
+      }],
+      recordedAt: expect.any(String),
+    })
+    expect(result.run.materialExposure).toEqual({
+      rulesVersion: 1,
+      requiredTaskCount: 1,
+      verifiedTaskCount: 1,
+      pendingTaskCount: 0,
+      unsupportedTaskCount: 0,
+    })
+  })
+
+  it('rejects model-input evidence bound to another submit tool call', async () => {
+    const test = await bench('提交请求必须精确绑定。\n', async (agent, message, planned) => {
+      const coverageId = planned.coverage[0]!.id
+      await agent.ctx.tools.execute({
+        name: 'wiki_material_read',
+        arguments: { coverageId },
+        agent,
+        callId: ToolCallId('stale-audit-read'),
+        signal: new AbortController().signal,
+      })
+      const reused = await agent.ctx.tools.execute({
+        name: 'wiki_task_submit',
+        arguments: { coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [] },
+        agent,
+        callId: ToolCallId('current-task-submit'),
+        signal: new AbortController().signal,
+      })
+      expect(reused).toMatchObject({ isError: true, error: {
+        message: expect.stringContaining('does not match its observed model request'),
+      } })
+      appendCompletedTurn(agent.session, message)
+    }, {}, { auditModelInputs: 'mismatched-call' })
+
+    const result = await test.ctx.wikiGeneration.runNext(test.planned.run.projectRoot)
+    expect(result.tasks[0]!.status).toBe('failed')
+    expect(result.tasks[0]!.modelInputAudit.state).toBe('pending')
+  })
+
   it('fails closed until ask-mode data egress is explicitly confirmed', async () => {
     let prompts = 0
     const test = await bench('项目材料。\n', (agent, message) => {

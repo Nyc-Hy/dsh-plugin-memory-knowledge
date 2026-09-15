@@ -440,7 +440,7 @@ describe('project knowledge versions', () => {
       content: '迁移后新增的人工说明。',
     })
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 })
     expect(migrated.prepare(`
       SELECT COUNT(*) AS count FROM knowledge_effective_versions WHERE generated_version_id = ?
     `).get(generatedVersion.id)).toEqual({ count: 2 })

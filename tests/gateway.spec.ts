@@ -63,7 +63,7 @@ const localMemory: LocalMemoryEntry = {
 }
 
 const wikiRun: WikiRun = {
-  schemaVersion: 8,
+  schemaVersion: 9,
   id: 'wrun_11111111-1111-4111-8111-111111111111' as never,
   projectRoot: projectPath,
   status: 'planned',
@@ -90,6 +90,13 @@ const wikiRun: WikiRun = {
     succeeded: 0,
     failed: 0,
     cancelled: 0,
+  },
+  materialExposure: {
+    rulesVersion: 1,
+    requiredTaskCount: 1,
+    verifiedTaskCount: 0,
+    pendingTaskCount: 1,
+    unsupportedTaskCount: 0,
   },
   tasks: {
     taskCount: 1,
@@ -454,7 +461,7 @@ describe('memory knowledge UI gateway', () => {
           eligibleForActivation: false,
           checks: expect.arrayContaining([
             { id: 'coverage', state: 'fail', issueCount: 3 },
-            { id: 'material-exposure', state: 'unsupported', issueCount: 1 },
+            { id: 'material-exposure', state: 'fail', issueCount: 1 },
           ]),
         },
         rootPageCount: 0,

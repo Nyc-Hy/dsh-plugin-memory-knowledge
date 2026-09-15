@@ -128,7 +128,7 @@ const wikiRunValue: MemoryUiWikiRunSummary = {
       { id: 'verification', state: 'fail', issueCount: 1 },
       { id: 'consistency', state: 'fail', issueCount: 1 },
       { id: 'pages', state: 'fail', issueCount: 1 },
-      { id: 'material-exposure', state: 'unsupported', issueCount: 1 },
+      { id: 'material-exposure', state: 'fail', issueCount: 1 },
       { id: 'business-questions', state: 'unsupported', issueCount: 1 },
       { id: 'cross-module-flows', state: 'unsupported', issueCount: 1 }],
   },

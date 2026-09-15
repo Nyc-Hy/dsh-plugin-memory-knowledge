@@ -170,7 +170,7 @@ describe('Wiki 材料读取持久账本', () => {
     expect(await upgraded.getWikiMaterialReadBudget(test.key)).toBeUndefined()
     expect(await upgraded.reserveWikiMaterialRead(test.request)).toMatchObject({ startedAtAttempt: 1, reservationCount: 1 })
     const database = new DatabaseSync(test.databasePath, { readOnly: true })
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 })
     database.close()
   })
 

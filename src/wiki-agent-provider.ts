@@ -11,7 +11,13 @@ import {
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import {
+  createUserMessage,
+  isAgentLoopRequest,
+  type GenerateOptions,
+  type Message,
+  type StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -34,6 +40,7 @@ import {
   DEFAULT_WIKI_PAGE_CONFIG,
   DEFAULT_WIKI_VERIFICATION_BATCH_CLAIMS,
   MAX_WIKI_CLAIM_STATEMENT_CHARACTERS,
+  WIKI_MODEL_INPUT_AUDIT_RULES_VERSION,
   type WikiCitation,
   type WikiClaim,
   type WikiConflict,
@@ -42,6 +49,8 @@ import {
   type WikiFileSynthesisConfig,
   type WikiPageConfig,
   type WikiMaterialRange,
+  type WikiMaterialExposure,
+  type WikiModelInputAudit,
   type WikiRunSnapshot,
   type WikiShardTask,
 } from './wiki-model.js'
@@ -133,6 +142,141 @@ interface MaterialReadState {
   readonly contentHashes: Map<string, string>
   readonly rangeContentHashes: Map<string, string>
   readonly deferralReasons: Map<string, string>
+  readonly materials: Map<string, ObservedWikiMaterial>
+  submissionRequest?: Extract<WikiModelInputAudit, { state: 'verified' }>
+  lastObservedSubmissionCallId?: string
+}
+
+interface ObservedWikiMaterial {
+  exposure: WikiMaterialExposure
+  content: string
+}
+
+function materialExposureKey(value: Pick<WikiMaterialExposure, 'coverageId' | 'rangeId'>): string {
+  return `${value.coverageId}\0${value.rangeId ?? ''}`
+}
+
+function toolResultTexts(messages: readonly Message[]): string[] {
+  const texts: string[] = []
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type !== 'tool-result') continue
+      for (const nested of block.content) {
+        if (nested.type === 'text') texts.push(nested.text)
+      }
+    }
+  }
+  return texts
+}
+
+function requestContainsMaterial(texts: readonly string[], value: ObservedWikiMaterial): boolean {
+  const { exposure, content } = value
+  const exactMaterial = `<dsh-wiki-untrusted-material>\n${content}\n</dsh-wiki-untrusted-material>`
+  return texts.some(text => text.includes(`Coverage: ${exposure.coverageId}`)
+    && text.includes(`SHA-256: ${exposure.contentHash}`)
+    && (exposure.rangeId === undefined || text.includes(`Range: ${exposure.rangeId}`))
+    && text.includes(exactMaterial))
+}
+
+function observedSubmissionRequest(
+  options: GenerateOptions,
+  state: MaterialReadState,
+  submissionCallId: string,
+): Extract<WikiModelInputAudit, { state: 'verified' }> | undefined {
+  const lastMessage = options.messages.at(-1)
+  if (lastMessage === undefined) return undefined
+  const texts = toolResultTexts(options.messages)
+  const material = [...state.materials.values()]
+    .filter(value => requestContainsMaterial(texts, value))
+    .map(value => structuredClone(value.exposure))
+    .sort((left, right) => materialExposureKey(left).localeCompare(materialExposureKey(right), 'und'))
+  if (material.length === 0) return undefined
+  return {
+    rulesVersion: WIKI_MODEL_INPUT_AUDIT_RULES_VERSION,
+    state: 'verified',
+    provider: options.provider,
+    model: options.model,
+    submissionCallId,
+    requestMessageCount: options.messages.length,
+    requestLastMessageId: String(lastMessage.id),
+    requestMessagesHash: `sha256:${createHash('sha256').update(JSON.stringify(options.messages)).digest('hex')}`,
+    material,
+    recordedAt: new Date().toISOString(),
+  }
+}
+
+function auditSuccessfulSubmissionRequest(
+  options: GenerateOptions,
+  next: () => AsyncIterable<StreamChunk>,
+  sessionId: SessionId,
+  submitToolName: string,
+  state: MaterialReadState,
+): AsyncIterable<StreamChunk> {
+  if (!isAgentLoopRequest(options) || options.sessionId !== sessionId) return next()
+  return (async function* (): AsyncIterable<StreamChunk> {
+    const submissionCallIds: string[] = []
+    for await (const chunk of next()) {
+      if (chunk.type === 'block-end' && chunk.block.type === 'tool-call'
+        && chunk.block.name === submitToolName) submissionCallIds.push(String(chunk.block.id))
+      if (chunk.type === 'finish') {
+        if (submissionCallIds.length === 1
+          && chunk.reason.kind !== 'error' && chunk.reason.kind !== 'aborted') {
+          state.lastObservedSubmissionCallId = submissionCallIds[0]!
+          const observed = observedSubmissionRequest(options, state, submissionCallIds[0]!)
+          if (observed === undefined) delete state.submissionRequest
+          else state.submissionRequest = observed
+        } else {
+          delete state.submissionRequest
+          delete state.lastObservedSubmissionCallId
+        }
+      }
+      yield chunk
+    }
+  })()
+}
+
+function installModelInputAudit(
+  agentCtx: Context,
+  sessionId: SessionId,
+  submitToolName: string,
+  state: MaterialReadState,
+): void {
+  agentCtx.on('llm/stream', (options, next) => auditSuccessfulSubmissionRequest(
+    options,
+    next,
+    sessionId,
+    submitToolName,
+    state,
+  ), { global: true, prepend: true })
+}
+
+function modelInputAuditForSubmit(
+  agent: Agent,
+  callId: string,
+  state: MaterialReadState,
+): WikiModelInputAudit {
+  const request = state.submissionRequest
+  if (state.lastObservedSubmissionCallId !== undefined && state.lastObservedSubmissionCallId !== callId) {
+    throw new Error('Wiki task submission does not match its observed model request')
+  }
+  if (request === undefined) {
+    const modelCall = agent.session.events.some(event => event.type === 'tool/call' && String(event.data.callId) === callId)
+    if (modelCall && state.materials.size > 0) {
+      throw new Error('Wiki task submission requires a successful model request containing its project materials')
+    }
+    return { rulesVersion: WIKI_MODEL_INPUT_AUDIT_RULES_VERSION, state: 'pending', material: [] }
+  }
+  if (request.submissionCallId !== callId) {
+    throw new Error('Wiki task submission does not match its observed model request')
+  }
+  const exposed = new Set(request.material.map(materialExposureKey))
+  const missing = [...state.materials.values()].filter(value => !exposed.has(materialExposureKey(value.exposure)))
+  if (missing.length > 0) {
+    throw new Error(`Wiki task submission model request omitted ${missing.length} material read(s)`)
+  }
+  delete state.submissionRequest
+  delete state.lastObservedSubmissionCallId
+  return structuredClone(request)
 }
 
 interface SubmitCoverageArg {
@@ -493,6 +637,12 @@ async function exactUtf8Material(
   }
   if (range === undefined) state.contentHashes.set(coverageId, objectHash ?? completeHash)
   else state.rangeContentHashes.set(String(range.id), objectHash!)
+  const exposure: WikiMaterialExposure = {
+    coverageId: coverage.id,
+    contentHash: objectHash ?? completeHash,
+    ...(range === undefined ? {} : { rangeId: range.id, rangeHash: completeHash }),
+  }
+  state.materials.set(materialExposureKey(exposure), { exposure, content })
   state.deferralReasons.delete(coverageId)
   return {
     status: 'content',
@@ -1049,6 +1199,7 @@ function installTaskTools(
         args.claims as SubmitClaimArg[],
         state,
       )
+      const modelInputAudit = modelInputAuditForSubmit(agent, String(exec.callId), state)
       const completed = succeedWikiTask(
         snapshot,
         taskId,
@@ -1058,6 +1209,7 @@ function installTaskTools(
         config.consistency,
         config.page,
         config.fileSynthesis,
+        modelInputAudit,
       )
       await rootCtx.memoryKnowledge.saveWikiRunSnapshot(completed, snapshot.snapshotHash)
       return {
@@ -1278,7 +1430,8 @@ function installFileSynthesisTools(
     async execute(args, exec) {
       const snapshot = await rootCtx.memoryKnowledge.getWikiRunSnapshot(runId)
       if (snapshot === undefined) throw new Error('Wiki run disappeared')
-      const task = currentRunningTask(snapshot, taskId, owningAgent(exec))
+      const agent = owningAgent(exec)
+      const task = currentRunningTask(snapshot, taskId, agent)
       const submission = buildFileSynthesisSubmission(
         snapshot,
         task,
@@ -1286,6 +1439,7 @@ function installFileSynthesisTools(
         args.claims as SubmitFileSynthesisClaimArg[],
         state,
       )
+      const modelInputAudit = modelInputAuditForSubmit(agent, String(exec.callId), state)
       const completed = succeedWikiFileSynthesisTask(
         snapshot,
         taskId,
@@ -1294,6 +1448,7 @@ function installFileSynthesisTools(
         config.verificationBatchClaims,
         config.consistency,
         config.page,
+        modelInputAudit,
       )
       await rootCtx.memoryKnowledge.saveWikiRunSnapshot(completed, snapshot.snapshotHash)
       return {
@@ -1600,6 +1755,7 @@ function installVerificationTools(
         args.conflicts as VerifyConflictArg[],
         state,
       )
+      const modelInputAudit = modelInputAuditForSubmit(agent, String(exec.callId), state)
       const completed = succeedWikiVerificationTask(
         snapshot,
         taskId,
@@ -1607,6 +1763,7 @@ function installVerificationTools(
         new Date().toISOString(),
         config.consistency,
         config.page,
+        modelInputAudit,
       )
       await rootCtx.memoryKnowledge.saveWikiRunSnapshot(completed, snapshot.snapshotHash)
       return {
@@ -1863,6 +2020,7 @@ export class DurableWikiGeneration extends WikiGeneration {
       contentHashes: new Map(),
       rangeContentHashes: new Map(),
       deferralReasons: new Map(),
+      materials: new Map(),
     }
     const setup = (agentCtx: Context): void => {
       agentCtx.tools.restrict({ allow: [] })
@@ -1882,6 +2040,18 @@ export class DurableWikiGeneration extends WikiGeneration {
       })
       const selected: ModelSelectionRef = { current: selection, assembled: undefined }
       installModelSelection(agentCtx, selected)
+      if (task.kind !== 'page') {
+        installModelInputAudit(
+          agentCtx,
+          task.agentSessionId!,
+          task.kind === 'analysis'
+            ? 'wiki_task_submit'
+            : task.kind === 'file-synthesis'
+              ? 'wiki_file_synthesis_submit'
+              : 'wiki_verification_submit',
+          state,
+        )
+      }
       if (task.kind === 'analysis' || task.kind === 'verification' || task.kind === 'consistency') {
         installWikiCatalogTools(agentCtx, this.ctx, {
           projectRoot: snapshot.run.projectRoot, runId: snapshot.run.id, taskId: task.id,

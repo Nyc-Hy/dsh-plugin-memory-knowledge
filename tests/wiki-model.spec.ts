@@ -1034,7 +1034,7 @@ describe('LLM Wiki runtime model', () => {
         { id: 'verification', state: 'pass', issueCount: 0 },
         { id: 'consistency', state: 'pass', issueCount: 0 },
         { id: 'pages', state: 'pass', issueCount: 0 },
-        { id: 'material-exposure', state: 'unsupported', issueCount: 1 },
+        { id: 'material-exposure', state: 'fail', issueCount: 1 },
         { id: 'business-questions', state: 'unsupported', issueCount: 1 },
         { id: 'cross-module-flows', state: 'unsupported', issueCount: 1 },
       ],
@@ -1362,5 +1362,65 @@ describe('LLM Wiki runtime model', () => {
     tampered.coverage[0]!.byteSize += 1
 
     expect(() => parseWikiRunSnapshot(tampered)).toThrow('coverage summary is inconsistent')
+  })
+
+  it('rejects a model input audit that borrows another task material range', () => {
+    const planned = createPlannedWikiRun({
+      projectRoot: '/workspace/cross-task-model-input-audit',
+      catalogHash,
+      catalogComplete: true,
+      catalogOmittedItemCount: 0,
+      entries: [rangedCatalogEntry()],
+      now: timestamp,
+    })
+    let completed = planned
+    for (const [index, plannedTask] of planned.tasks.entries()) {
+      const task = completed.tasks.find(value => value.id === plannedTask.id)!
+      const range = task.materialRanges[0]!
+      completed = succeedWikiTask(startWikiTask(
+        completed,
+        task.id,
+        SessionId(`session-cross-task-audit-${index}`),
+        `2026-08-27T03:0${index}:00.000Z`,
+      ), task.id, {
+        coverage: [{
+          coverageId: completed.coverage[0]!.id,
+          rangeId: range.id,
+          status: 'analyzed',
+          contentHash: preparedContentHash,
+        }],
+        citations: [],
+        claims: [],
+      }, `2026-08-27T03:0${index}:30.000Z`)
+    }
+    const tampered = withoutSnapshotHash(completed)
+    const firstTask = tampered.tasks[0]!
+    const secondRange = tampered.tasks[1]!.materialRanges[0]!
+    firstTask.modelInputAudit = {
+      rulesVersion: 1,
+      state: 'verified',
+      provider: 'test-provider',
+      model: 'test-model',
+      submissionCallId: 'call-cross-task-audit',
+      requestMessageCount: 2,
+      requestLastMessageId: 'message-cross-task-audit',
+      requestMessagesHash: `sha256:${'6'.repeat(64)}`,
+      material: [{
+        coverageId: completed.coverage[0]!.id,
+        contentHash: preparedContentHash,
+        rangeId: secondRange.id,
+        rangeHash: secondRange.contentHash,
+      }],
+      recordedAt: '2026-08-27T03:02:00.000Z',
+    }
+    tampered.run.materialExposure = {
+      rulesVersion: 1,
+      requiredTaskCount: 2,
+      verifiedTaskCount: 1,
+      pendingTaskCount: 1,
+      unsupportedTaskCount: 0,
+    }
+
+    expect(() => finalizeWikiRunSnapshot(tampered)).toThrow('stale material range')
   })
 })

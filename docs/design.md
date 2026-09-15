@@ -648,7 +648,7 @@ Git diff 增量 Source inventory 纵切包括：
 3. 目录清单完整性、遗漏数、逐状态文件数和总字节是持久化不变量；清单有遗漏时运行固定 `blocked`，不会把预算截断伪装成全项目理解；
 4. assertion 与 inference 必须引用已分析 Catalog 项中的具体文件或文档，Source id、path 与 revision 必须相符；`git-commit` 和 Session 不能单独支持事实，inference 不能标成 verified，unknown 只能保持 uncertain，conflicted Claim 必须关联开放冲突；
 5. Wiki Page 不保存独立摘要正文，只引用 Claim；eligible Claim 必须在任务树中恰好出现一次，页面状态由 Host 从直接 Claim 与子页面聚合，页面树拒绝环、多父节点、缺失节点和孤儿；
-6. SQLite schema v19 按 Run 分表保存 coverage、tasks、citations、claims、conflicts 和 pages，候选对与召回原因保存在 durable consistency Task 中，材料区间保存在 analysis Task 中；保存时事务原子替换，读取时重建跨表关系、Task、区间汇总、文件级综合来源链、候选指纹、Page 覆盖和页面树并复核 snapshot hash；Wiki runtime 格式独立为 schema v8；v17→v18 迁移为旧 Claim 补充空来源链，并把旧 Run 标记为文件级综合未评估，不伪造历史运行完成了新阶段；
+6. SQLite schema v25 按 Run 分表保存 coverage、tasks、citations、claims、conflicts 和 pages，候选对与召回原因保存在 durable consistency Task 中，材料区间保存在 analysis Task 中；保存时事务原子替换，读取时重建跨表关系、Task、区间汇总、文件级综合来源链、模型输入审计、候选指纹、Page 覆盖和页面树并复核 snapshot hash；Wiki runtime 格式独立为 schema v9；runtime v8 历史任务的模型输入审计明确标记为不支持，不从旧成功状态反推最终 Provider 请求包含了原文；
 7. 每个自然分片映射为确定性 durable Task，保存状态、尝试次数、Agent Session id 与失败原因；同 Catalog 的失败或取消 Task 可以恢复和重试；
 8. 超过区间目标的 Git 文本在规划时顺序流式校验 Git object id、完整 SHA-256、fatal UTF-8 与 NUL，并写入用户私有的 content-addressed 派生缓存；核心区间严格覆盖完整对象，每侧上下文只用于理解边缘。每个区间拥有确定性 `rangeId` 和独立 Task，全部区间成功前文件 Coverage 不得标为 analyzed；
 9. `WikiGeneration` Provider 使用 public `@deepseek-ai/dsh-agent` 创建或恢复 Session，屏蔽全局工具，只注册当前阶段的上下文、材料读取和结构化提交工具；只有完整读取并复核实际字节数、Git object、SHA-256 和持久化区间身份的材料才能支持 assertion/inference，模型未提交时 Task 进入可审计 failed；
