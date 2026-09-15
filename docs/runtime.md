@@ -1,8 +1,8 @@
 # Memory & Knowledge 运行说明
 
-本文记录现有运行时。记忆与知识已拆分为独立入口，本机长期记忆已具备独立条目、修订及生命周期；生效 Wiki 页面可以保存人工正文替换或追加说明，并形成新的生效版本。完整 Wiki 分析自动可用、人工修订进入 Agent 默认查询和正式结构化双视图仍按[产品设计](product-model.md)及[知识生命周期与实施设计](knowledge-lifecycle.md)继续实现。
+本文记录现有运行时。记忆与知识已拆分为独立入口，本机长期记忆已具备独立条目、修订及生命周期；生效 Wiki 页面可以保存人工正文替换或追加说明，并形成新的生效版本。Agent 可以在显式项目与 Provider 授权下查询包含人工修订的当前生效版本；完整 Wiki 分析自动可用和正式结构化双视图仍按[产品设计](product-model.md)及[知识生命周期与实施设计](knowledge-lifecycle.md)继续实现。
 
-当前运行时是一条本地优先纵切：系统在回合结束后从明确的用户表达生成长期记忆候选，模型也可以提交候选；候选被接受时原子创建独立、立即生效的本机 MemoryEntry，用户也可在设置页直接新建个人或项目记忆，编辑、停用、删除与恢复均生成不可变修订。Source inventory 可以显式构建本地 Source records 并生成确定性 Knowledge Card 候选。晋升到 Git canonical 的旧 Knowledge Card 只出现在知识兼容层的显式浏览与搜索中。`memory_search` 和 `agent/pre-step` 自动召回只读取生效的个人与当前项目记忆，完整正文与来源随 Session 持久化。
+当前运行时是一条本地优先纵切：系统在回合结束后从明确的用户表达生成长期记忆候选，模型也可以提交候选；候选被接受时原子创建独立、立即生效的本机 MemoryEntry，用户也可在设置页直接新建个人或项目记忆，编辑、停用、删除与恢复均生成不可变修订。Source inventory 可以显式构建本地 Source records 并生成确定性 Knowledge Card 候选。晋升到 Git canonical 的旧 Knowledge Card 只出现在知识兼容层的显式浏览与搜索中。`memory_search` 只查询记忆；`agent/pre-step` 独立查询生效记忆，并在项目根和最终 Provider 都被显式允许时查询当前 EffectiveVersion。实际注入正文、来源、对象版本和预算随 Session 持久化。
 
 ## 安装组成
 
@@ -16,7 +16,7 @@ Bundle 的 `cordis.patch.yml` 插入十个插件：
 6. `memory-knowledge-wiki-agent`：使用 public DSH Agent 与 durable Session 执行或恢复一个有界分析、文件级综合、核验、一致性或 Page Task；事实阶段只暴露对应的 Wiki 上下文、不可变材料读取和结构化提交工具，Page 阶段只能读取有界 Claim 上下文并提交组织关系。
 7. `memory-knowledge-conversation-extraction`：在 durable `turn/end` 后提取明确记忆表达，并原子推进本地回合断点。
 8. `memory-knowledge-ui`：提供严格 Typert Host RPC，并使包根进入 DSH 客户端模块发现清单。
-9. `memory-knowledge-recall`：根据当前用户消息执行有界自动召回。
+9. `memory-knowledge-recall`：根据当前用户消息分别执行记忆和生效项目知识的有界自动召回，并在模型请求前检查项目与 Provider 出域授权。
 10. `memory-knowledge-tools`：注册候选保存、主动搜索和来源追溯工具。
 
 Provider 默认将私有数据库写到 `$DSH_HOME/memory-knowledge/memory.sqlite`。可以在 Cordis 配置中为 Provider 指定 `path` 和 `journalMode`；自定义路径仍应位于非 Git 的用户私有目录。`wikiShardMaxItems` 和 `wikiShardMaxBytes` 分别控制自然分片的项目数和元数据字节预算，默认为 80 项和 262144 字节。Inventory Provider 的 `wikiMaterial.chunkBytes`、`maxMaterialBytes`、`rangeTargetBytes`、`rangeContextBytes`、`stderrMaxBytes` 和 `processGraceMs` 控制不可变 Git object 的流式读取与区间准备，默认依次为 65536 字节、8 GiB、393216 字节、32768 字节、65536 字节和 3000 毫秒。Wiki Agent 的 `maxMaterialBytes`、`maxOutputTokens`、`toolTimeoutMs` 和 `verificationBatchClaims` 默认分别为 524288 字节、16384 token、120000 毫秒和 16 条 Claim；单条 Claim statement 最多保存 20000 个字符。`rangeTargetBytes + 2 × rangeContextBytes` 必须不大于 Inventory 的 `maxMaterialBytes`，并应不大于 Wiki Agent 的 `maxMaterialBytes`；默认单区间最多 458752 字节。`fileSynthesisMaxClaimsPerTask`、`fileSynthesisMaxStatementCharactersPerTask` 和 `fileSynthesisMaxLevels` 默认分别为 16 条输入 Claim、64000 个 statement 字符和 8 层；规划时把预算写入 Run，恢复和递归不读取新配置覆盖既有预算。`consistencyMaxClaimsPerTask`、`consistencyMaxCandidatePairs`、`consistencyMaxClaimsPerRecallKey` 和 `consistencyMaxRecallKeysPerClaim` 默认分别为 12、256、32 和 32。`pageMaxClaimsPerTask` 和 `pageMaxStatementCharactersPerTask` 分别把 Page 任务限制为 16 条 Claim 和 64000 个 statement 字符。超过区间目标的有效 UTF-8 Git 文本进入可恢复区间任务；非 Git、非 UTF-8、包含 NUL 或超过流式准备上限的材料显式 deferred。区间大于 Agent 读取上限属于配置错误并直接失败，不会截断后生成事实；一致性候选超过任一召回预算时显式报告不完整，不把截断解释为无冲突。
@@ -27,7 +27,7 @@ Provider 默认将私有数据库写到 `$DSH_HOME/memory-knowledge/memory.sqlit
 
 设置页通过脱敏后的版本摘要选择知识来源：没有 EffectiveVersion 时，项目 Wiki 与 Agent 知识都显示当前分析草稿，Agent 默认查询仍不读取它；存在 EffectiveVersion 时，两个 Tab 都固定到同一个生效 Run，并显示生效版标识。分析进度始终跟随当前分析 Run，因此新一代草稿不会覆盖仍在使用的旧生效版。当前三项完成证据仍报告 `unsupported`，所以生产状态机尚不会自动生效任何 Run；这保持了完成语义，后续需要先实现实际模型输入审计、项目问题和跨模块流程记录。
 
-生效 Wiki 页允许操作者选择“替换页面正文”或“追加页面说明”。保存请求携带项目选择修订、生效版本 id 和幂等请求 id；Host 在一个事务中保存不可变 HumanRevision、建立包含累计修订 id 的新 EffectiveVersion，并把选择切换为 `fixed`。旧页面、旧生成版本和旧生效版保持不变；并发过期保存返回冲突。页面正文替换会把原 Claim 标为需要人工复核，追加说明保留原 Claim 状态。当前修订已在两个知识 Tab 的 Wiki 树中一致显示，并进入只包含当前 EffectiveVersion 的独立本地全文索引；页面正文替换不再沿用生成 Claim 的代码来源，追加说明仍保留生成 Claim 及其来源。该索引尚未接入 Agent 默认知识查询，因此不能把界面可见或本地命中等同于 Agent 已使用。
+生效 Wiki 页允许操作者选择“替换页面正文”或“追加页面说明”。保存请求携带项目选择修订、生效版本 id 和幂等请求 id；Host 在一个事务中保存不可变 HumanRevision、建立包含累计修订 id 的新 EffectiveVersion，并把选择切换为 `fixed`。旧页面、旧生成版本和旧生效版保持不变；并发过期保存返回冲突。页面正文替换会把原 Claim 标为需要人工复核，追加说明保留原 Claim 状态。当前修订已在两个知识 Tab 的 Wiki 树中一致显示，并进入只包含当前 EffectiveVersion 的独立本地全文索引；页面正文替换不再沿用生成 Claim 的代码来源，追加说明仍保留生成 Claim 及其来源。自动召回只在显式允许的项目与 Provider 中查询该索引，界面可见或本地命中本身不代表 Agent 已使用。
 
 ## 初始化项目知识
 
@@ -202,19 +202,23 @@ Trace 返回精确正文、当前状态、作用域、更新时间和 provenance
 
 ## 自动召回
 
-Recall Consumer 只从当前 step 中 `source.kind=user` 的直接用户文本生成查询，不使用之前注入的插件消息，因此不会递归召回。它按照以下顺序处理：
+Recall Consumer 只从当前 step 中 `source.kind=user` 的直接用户文本生成查询，不使用之前注入的插件消息，因此不会递归召回。记忆与项目知识分别查询、分别降级，并受同一最终消息上限约束：
 
 ```text
 用户消息
   → 从 Session cwd 向上寻找最近的 .dsh/knowledge/manifest.json 或 .git
-  → FTS scope/sensitivity 过滤
-  → 条数与字符预算
-  → 带 ID、类型、来源、证据类别和正文的 recall 消息
+  ├→ 记忆 FTS scope/sensitivity 过滤（始终本地）
+  └→ 当前 EffectiveVersion FTS（仅显式允许的项目根）
+  → 两域独立条数/字符预算 + 总字符预算
+  → 带精确对象 id、版本、来源、项目根和预算的 recall 消息
   → agent/pre-step 决策
   → Session user/message
+  → agent/request 检查最终 Provider 与所有持久化项目根
 ```
 
-默认限制是 5 条、6000 字符、查询最多 2000 字符。Recall 内容明确标记为背景资料而不是指令；当前 workspace 证据与记忆冲突时，以当前证据为准。检索失败不会阻塞 Agent，同一 Agent 对同一错误只注入一次降级通知。
+记忆默认限制为 5 条、6000 字符，项目知识默认限制为 5 页、8000 字符，合并消息默认最多 16000 字符，查询最多 2000 字符。项目知识的 `knowledgeEgressMode` 默认为 `ask`，当前实现把它作为不出域的安全状态；只有配置为 `allow` 且 `knowledgeAllowedProjectRoots` 与 `knowledgeAllowedProviders` 均非空时才查询并注入。项目根按真实规范路径精确匹配，不接受相对路径；缺少 Session cwd 时不从进程 cwd 猜项目，但个人记忆仍可查询。请求检查在下游选定最终 Provider 后执行，历史 Session 中只要存在项目知识正文，后续步骤、会话恢复和 Provider 改写都必须继续满足原项目与当前 Provider 允许列表。
+
+Recall 内容明确标记为背景资料而不是指令；记忆要求与项目知识现状分段呈现，当前 workspace 证据与召回内容冲突时以当前证据为准。项目知识只来自所选生效版本；人工替换正文不继承旧 Claim 来源，人工说明与生成来源分别标明。任一域检索失败不会阻塞另一域或 Agent，同一 Agent 对同一错误只注入一次对应降级通知；返回其他项目的数据会被丢弃并作为项目知识失败记录。
 
 ## 当前限制
 

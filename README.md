@@ -4,7 +4,7 @@ DeepSeek Harness 的本地优先记忆与项目知识 Bundle。
 
 本仓库的 `main` 分支已完成 canonical 数据层、具有修订生命周期的独立本机长期记忆、本地运行时、可视化审核、来源陈旧检测、确定性 Knowledge Card 候选生成、Source records、有界 Source evidence、对话显式记忆提取、可查询 Evidence Pack、AST 代码符号、Git diff 增量 inventory、静态模块关系与分层架构摘要、有界关系查询与 Graph 可视化、跨文件符号定义/引用查询与可视化、TypeScript 项目配置解析、语言无关的 LLM Wiki 运行与覆盖审计数据模型、无正文读取的 Git Project Catalog、有界 Wiki 覆盖/盲区 RPC 与可视化、不可变 Git object 流式材料读取、超大 Git 文本的可验证区间任务、基于多区间证据的有界文件级 Claim 综合、durable DSH Wiki Agent、有界跨分片 Claim 核验、跨核验批次的全局一致性候选召回，以及只组织 Claim 的 durable Wiki Page 生成与有界树形查看。长期目标是提供个人长期记忆、通过 Git 共享的项目与团队记忆、项目知识库、LLM Wiki、超大代码库的分层理解，以及带来源、版本和陈旧状态的可视化查看。
 
-新的[记忆与项目知识产品设计](docs/product-model.md)定义独立入口、个人/项目记忆及其可视化、知识双视图、完整分析后自动可用与直接修改保存；[知识生命周期与实施设计](docs/knowledge-lifecycle.md)落实阅读证据、版本选择与停用/回退、人工修订及过期状态、关联查询、Git 共享规模、Run 预算和验收矩阵。当前页面已经将“记忆”和“知识”设为两个一级领域：记忆内部选择个人或项目范围，可直接新建、编辑、停用、删除、恢复长期条目并查看修订历史，同时保留独立候选审核；知识必须选择项目且只提供“项目 Wiki”和“Agent 知识”两个主 Tab；分析进度、来源、预算和历史通过知识域内的辅助面板访问。Wiki Run 同时投影保守的知识激活完成报告，缺少实际送模审计、项目问题清单或跨模块业务流程记录的旧 Run 不会被误自动发布。项目现在为每次分析保存显式选择代际，并已具备不可变 GeneratedVersion、EffectiveVersion 与原子生效指针；两个知识 Tab 按同一生效版读取，未生效时明确显示同一分析草稿。记忆条目纵切已经生效；生效 Wiki 页面支持无模型的人工正文替换和追加说明，每次保存形成不可变 HumanRevision，并通过 CAS 切换到包含该修订的 fixed EffectiveVersion。Wiki 完成证据、自动触发、正式结构化双视图对象、人工修订进入 Agent 默认查询以及完整版本治理仍按设计继续实现。既有架构与实现基线见 [docs/design.md](docs/design.md)，当前运行方式见 [docs/runtime.md](docs/runtime.md)。Wiki 各事实阶段的累计原文预扣、预算面板、停止与人工确认扩额见[材料读取预算](docs/wiki-material-budget.md)。
+新的[记忆与项目知识产品设计](docs/product-model.md)定义独立入口、个人/项目记忆及其可视化、知识双视图、完整分析后自动可用与直接修改保存；[知识生命周期与实施设计](docs/knowledge-lifecycle.md)落实阅读证据、版本选择与停用/回退、人工修订及过期状态、关联查询、Git 共享规模、Run 预算和验收矩阵。当前页面已经将“记忆”和“知识”设为两个一级领域：记忆内部选择个人或项目范围，可直接新建、编辑、停用、删除、恢复长期条目并查看修订历史，同时保留独立候选审核；知识必须选择项目且只提供“项目 Wiki”和“Agent 知识”两个主 Tab；分析进度、来源、预算和历史通过知识域内的辅助面板访问。Wiki Run 同时投影保守的知识激活完成报告，缺少实际送模审计、项目问题清单或跨模块业务流程记录的旧 Run 不会被误自动发布。项目现在为每次分析保存显式选择代际，并已具备不可变 GeneratedVersion、EffectiveVersion 与原子生效指针；两个知识 Tab 按同一生效版读取，未生效时明确显示同一分析草稿。记忆条目纵切已经生效；生效 Wiki 页面支持无模型的人工正文替换和追加说明，每次保存形成不可变 HumanRevision，并通过 CAS 切换到包含该修订的 fixed EffectiveVersion。Agent 可以在项目根和最终 Provider 都被显式允许时查询当前 EffectiveVersion，人工正文与说明随该版本进入独立知识段；默认 `ask` 不向模型发送项目知识。Wiki 完成证据、自动触发、正式结构化双视图对象以及完整版本治理仍按设计继续实现。既有架构与实现基线见 [docs/design.md](docs/design.md)，当前运行方式见 [docs/runtime.md](docs/runtime.md)。Wiki 各事实阶段的累计原文预扣、预算面板、停止与人工确认扩额见[材料读取预算](docs/wiki-material-budget.md)。
 
 ## 既有实现方向
 
@@ -15,11 +15,11 @@ DeepSeek Harness 的本地优先记忆与项目知识 Bundle。
 - 个人记忆只保存在 `$DSH_HOME`；项目与团队知识审核后进入 Git。
 - Workspace 同时支持单仓和多仓；Git 中使用独立稳定的 Knowledge Space/Source id，不写入本机 Workspace id 或绝对路径。
 - 文件解析、FTS、符号关系、Git 增量和索引默认本地运行。
-- 第一阶段不依赖 embedding；远程 LLM 只用于显式允许的候选提炼、Wiki 生成和复杂总结。
+- 第一阶段不依赖 embedding；远程 LLM 只用于显式允许的候选提炼、Wiki 生成、复杂总结和生效知识召回。
 - 数据出域确认绑定当前 Workspace 与单个 Wiki Task，默认 `ask`，禁止本地失败后静默远程 fallback。
 - Wiki Task 的默认 `ask` 由设置页一次性确认、严格 RPC 确认位和 Provider fail-closed 共同执行；`deny` 不创建模型 Agent，`allow` 只跳过调用方确认。
 - Wiki Claim 在 Git blob 未变时跨 commit 复用并重绑定引用；Wiki Page 按 Source id 与 slug 更新稳定 Knowledge Card，生成和晋升使用完整 Catalog，不受旧 Source inventory 正文总量预算阻断。
-- 对模型实际注入的记忆必须作为完整、有来源的 Session 消息持久化。
+- 对模型实际注入的记忆和生效知识必须作为带精确对象 id、来源、版本和预算的 Session 消息持久化。
 
 ## 第一阶段
 
@@ -52,7 +52,7 @@ embedding、远程团队服务、第三方数据源、无审核的团队写入�
 - `memory_candidate_save`、`memory_search`、`knowledge_search`、`memory_trace` 四个模型工具；
 - `turn/end` 后从 direct user message 确定性提取“请记住”、长期偏好和项目决定，生成带 Session provenance 的本地待审核候选；
 - SQLite schema v24 保存独立 MemoryEntry、不可变修订和对话提取断点、Source evidence FTS、可复用的 Source 扫描身份、当前 checkpoint 的静态模块关系边、跨文件符号定义/引用、TypeScript 配置摘要、本地 Wiki Run/Coverage/Task/Citation/Claim/Conflict/Page，以及独立的 GeneratedVersion、EffectiveVersion、HumanRevision 和项目选择指针；v3-v10 升级只清理旧 Provider 产生的可重建 Source records、FTS、关系边和符号图，v11 升级保留 Source checkpoint，v12→v13 在原 Run 上为可分析 Coverage 补建 analysis Task，v13→v14 为既有 Task 补充 kind/Claim 范围并补建 verification Task，v14→v15 为 Task 补充候选对并让已审核 Run 重新进入全局一致性召回，v15→v16 保留旧 Page 为 stale legacy 数据、从活动根移除并为已审核 Run 安排有界 Page 重建，v16→v17 为既有 Task 补充空材料区间并升级 Wiki runtime v6，v17→v18 为既有 Claim 补充空来源链并把文件综合完整性明确标为未评估，v18→v19 补充综合层级和唯一来源任务，历史递归完整性保持未评估，v19→v20 增加独立任务材料账本，v20→v21 增加版本和选择表且不追认任何旧 Run 已生效，v21→v22 把已接受或已晋升的记忆候选迁移为独立长期条目并保留审核关联，v22→v23 增加不可变人工知识修订链并把历史生效版迁移为空修订链，v23→v24 根据项目选择指针重建仅包含当前 EffectiveVersion Wiki Page 的派生本地全文索引；blocked Run 保持零 Task，候选、审核、记忆检索、对话断点和既有 Wiki 数据始终保留；
-- `agent/pre-step` 自动有界召回，实际召回正文及来源作为 durable `user/message` 写入 Session；
+- `agent/pre-step` 分别查询适用记忆与当前 EffectiveVersion，使用独立条数/字符额度和总消息额度；项目知识默认不出域，只有当前项目根和最终 Provider 都在显式允许列表中才会注入。实际正文、来源、记忆 id、生效版本 id、页面 id、项目根和预算作为 durable `user/message` 写入 Session；后续步骤、恢复会话或其他插件改写 Provider 时继续执行同一出域检查；
 - 候选、canonical Memory 与 Knowledge Card 的精确 Trace；
 - 新项目安全初始化，以及候选列表、审核、晋升、搜索和追溯 CLI。
 - Web/Electron 共用的设置页客户端模块，包含候选审核、长期记忆新建/编辑/停用/删除/恢复、修订历史、搜索和 Recall Trace；

@@ -22,7 +22,7 @@
 | FreshnessAssessment | 生效版本、目标 Source 向量、变化证据、受影响对象、检查状态 | 新鲜度服务；不改写历史生成事实 |
 | KnowledgeSelection | 项目/范围/Source 目标、选择修订、当前分析代际/Run、自动或固定模式、停用记录 | 本机版本选择；不按任务完成时间或分支名称决定新旧 |
 
-其中 MemoryEntry、MemoryRevision、GeneratedVersion、EffectiveVersion 和 KnowledgeSelection 已完成第一阶段持久化及运行接口；HumanRevision 已完成面向 Wiki Page 的正文替换与追加说明纵切，包括幂等保存、版本并发校验和同一生效版双视图投影。其余名称仍是设计名，不代表已有完整接口。当前版本清单直接引用既有 Page、Claim、Citation 与 Conflict，尚未形成完整 KnowledgeObject 或 FreshnessAssessment；现有 HumanRevision 已进入只包含当前 EffectiveVersion 的独立本地全文索引，但尚未进入 Agent 默认查询、对象身份沿革或三方合并。复用现有 KnowledgeSpaceId 表示稳定项目身份，KnowledgeSourceId 表示材料源；Workspace 与本机绝对路径只是本地绑定。用户看到的项目名称可改，身份不随改名或迁移机器变化。
+其中 MemoryEntry、MemoryRevision、GeneratedVersion、EffectiveVersion 和 KnowledgeSelection 已完成第一阶段持久化及运行接口；HumanRevision 已完成面向 Wiki Page 的正文替换与追加说明纵切，包括幂等保存、版本并发校验和同一生效版双视图投影。其余名称仍是设计名，不代表已有完整接口。当前版本清单直接引用既有 Page、Claim、Citation 与 Conflict，尚未形成完整 KnowledgeObject 或 FreshnessAssessment；现有 HumanRevision 已进入只包含当前 EffectiveVersion 的独立本地全文索引，并可在项目根和最终 Provider 都被显式允许时进入 Agent 查询，但尚未实现对象身份沿革或三方合并。复用现有 KnowledgeSpaceId 表示稳定项目身份，KnowledgeSourceId 表示材料源；Workspace 与本机绝对路径只是本地绑定。用户看到的项目名称可改，身份不随改名或迁移机器变化。
 
 状态不能挤进一个 `verified` 字段：执行状态、结论类型、核验状态、来源和新鲜度分别保存。人工陈述可以生效而尚未由代码证实；模型推断不能因为进入生效版本就升级为事实；有冲突的已完成版本仍可以使用，但必须携带冲突。
 
@@ -266,7 +266,7 @@ Service 方法不等于模型工具授权。人工保存、接受候选、解决
 
 Host 由注册 Workspace 和当前 Session 解析项目，不接受浏览器传入任意根路径；服务核对项目、视图、版本及对象归属。缺少项目绑定时知识查询返回无项目，不从 Host cwd 猜测；个人记忆仍可按自身权限查询。
 
-默认上下文中“适用记忆”和“项目知识”独立查询、独立配额，再受整个请求的总预算约束；禁止把全库和整本 Wiki 一次性注入。检索结果是带来源的数据，不提升系统提示或工具权限。当前无正式知识时明确返回未就绪，不偷偷查询旧 Card 或草稿；用户显式要求分析草稿时走单独标明 draft 的请求。
+默认上下文中“适用记忆”和“项目知识”独立查询、独立配额，再受整个请求的总预算约束；禁止把全库和整本 Wiki 一次性注入。当前纵切已按这三个预算装配两域，并把实际条目、页面、生效版本、项目根、检索器版本和预算写入 Session；项目知识默认不出域，只有精确项目根和最终 Provider 均被显式允许时才进入请求。检索结果是带来源的数据，不提升系统提示或工具权限。当前无正式知识时明确返回未就绪，不偷偷查询旧 Card 或草稿；用户显式要求分析草稿时走单独标明 draft 的请求。
 
 两域通过显式的稳定引用关联：至少区分记忆约束的关联实现/测试、决策的关联对象及知识修订的相关经验。引用保存两端 id、关系类型、创建来源和所依据修订；读取再解析当前适用的记忆修订及所选 EffectiveVersion，返回实际使用的双方版本。端点被替代、删除或无法关联时明确提示，不按名称相似度自动连接。仅有关联不代表实现满足要求；“符合/不符合/未知”必须有单独证据或核验结果。
 

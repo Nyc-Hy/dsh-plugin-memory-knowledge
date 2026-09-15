@@ -21,6 +21,9 @@ import type { ProvenanceRef } from './model.js'
 import { assertProvenanceRefs } from './schema.js'
 import type { WikiRunSnapshot } from './wiki-model.js'
 
+/** Stable version of the current EffectiveVersion Wiki FTS projection and retrieval semantics. */
+export const EFFECTIVE_KNOWLEDGE_RETRIEVER_VERSION = 1 as const
+
 /** One original Claim citation retained beside a searchable effective Wiki page. */
 export interface EffectiveKnowledgeSource {
   claimId: WikiClaimId
