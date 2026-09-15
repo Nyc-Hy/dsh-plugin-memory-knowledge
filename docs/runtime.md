@@ -113,6 +113,10 @@ Wiki 树只在用户点击“查看 Wiki 树”后加载，不随 Run header 自
 
 事实任务还可以调用 `wiki_catalog_search` 按字面路径子串分页定位当前 Run 的 Coverage，并调用 `wiki_catalog_ranges` 查看指定大文件的稳定区间、字节范围和分配状态。两个工具只返回有界元数据：`assignedToTask=false` 的命中仍不能被当前任务读取或引用，目录结果也不能证明项目中不存在某个逻辑。游标绑定项目、Run、Task、Agent Session、筛选条件和本次 `limit/maxCharacters` 预算；查询不会建立材料读取账本，也不会加载完整 Wiki 快照或源码。
 
+### v24 生效知识召回发布物验收
+
+当前 v24 tarball 已安装到实际 Web profile；原有 `dsh-plugin-chat` 从已消失的临时 tarball 迁移为对已安装内容原样重打包的持久本机来源，两个 Bundle 同时保留。组合配置只允许 `/Users/lanxin/Documents/Code/deepseek-harness` 的当前 EffectiveVersion 通过 `minimax-cn` 进入模型请求，项目知识限 5 页、8000 字符，记忆与知识合并消息限 16000 字符，并禁止缺少 Session cwd 时猜测项目。包内 recall 入口在安装目录导出格式版本 1 和相同预算；Web Host 在 `127.0.0.1:58047` 返回 HTTP 200，真实设置页显示独立“记忆/知识”领域及“项目 Wiki/Agent 知识”双视图，新建浏览器连接没有 warning/error。当前私有数据库有 0 个 Wiki Run、0 个 Page 和 0 个 EffectiveVersion，因此本次验收只证明发布物安装、组合授权、Host/UI 装载与无正式知识时的空状态；没有向 MiniMax 发送项目知识，也不证明真实生效知识召回或回答质量。请求末端 Provider 改写、Session 恢复、旧格式回放、多项目根、跨项目错误结果和配置拒绝由 keyless 回归覆盖。
+
 ### v22 独立记忆发布物验收
 
 v22 tarball 在隔离临时 Web profile 中完成安装和同版本不同路径更新，真实设置页与包内运行时读取同一份 SQLite schema v22。页面直接创建一条无外部来源、由操作者确认的个人“方法与流程”记忆后，依次保存编辑修订、停用并恢复；列表状态、详情正文和修订历史分别显示 v1 创建、v2 编辑、v3 停用、v4 恢复。数据库保持 `current_revision=4`、`status=active`，并重新建立一条 active 检索文档。实际操作期间没有新增浏览器 warning/error；删除和 revision 冲突由 keyless 回归覆盖，本次界面验收没有执行删除。该流程不配置模型凭据，只证明当前发布物的独立长期记忆持久化、严格 RPC、客户端编辑和检索生命周期，不证明自动提取或 Wiki 模型分析质量。

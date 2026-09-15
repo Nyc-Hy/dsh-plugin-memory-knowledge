@@ -57,6 +57,7 @@ embedding、远程团队服务、第三方数据源、无审核的团队写入�
 - 新项目安全初始化，以及候选列表、审核、晋升、搜索和追溯 CLI。
 - Web/Electron 共用的设置页客户端模块，包含候选审核、长期记忆新建/编辑/停用/删除/恢复、修订历史、搜索和 Recall Trace；
 - 严格 Typert Host RPC、Workspace id 到本机路径的 Host 侧解析、受限正文隔离和 revision CAS；
+- 当前 v24 tarball 已安装到实际 Web profile，组合配置只允许 `deepseek-harness` 当前 EffectiveVersion 通过 `minimax-cn` 有界召回；真实设置页与 Host 启动通过。当前数据库没有 Wiki Run、Page 或 EffectiveVersion，因此尚未向 MiniMax 发送项目知识；验收边界见[v24 生效知识召回发布物验收](docs/runtime.md#v24-生效知识召回发布物验收)。
 - 当前 v22 tarball 已在隔离 Web profile 完成安装、同版本不同路径更新和真实设置页验收；人工创建的独立个人记忆完成创建、编辑、停用、恢复和四版历史核对，SQLite 保持 active 检索文档。该无模型验收的边界见[v22 独立记忆发布物验收](docs/runtime.md#v22-独立记忆发布物验收)。
 - 历史 v19/runtime v8 发布物完成隔离安装、更新、禁用和卸载启动验收；真实设置页验证递归进行中、共同审视完成和两种停止原因。宿主会话导出启动问题、卸载残留与无模型凭据的验证边界见[v19 发布物验收](docs/runtime.md#v19-发布物验收)。
 - 历史 v18 tarball 已安装到全新临时 `DSH_HOME` 的隔离 Web profile；真实 Host 完成十个插件入口激活，包内 CLI 可以初始化临时 Git canonical、规划 Catalog，并与真实设置页读取同一份 SQLite schema v18/runtime v7 数据。随后仅通过 tarball public API 写入一个确定性状态机 fixture：同一 100 字节文件的两个区间分别生成一条带支持证据的原始 Claim，文件级综合消费两条来源并产生一条 inference，下游 verification Task 只接收该活动综合 Claim。页面显示“任务 3/4 完成”“大文件区间 2/2，已理解 100 B”“文件级综合 1 个文件、2 条输入、1 批，跨批完整”，操作切换为“核验下一批声明”；页面没有投影临时项目根或 Agent Session id，连接后控制台没有 warning/error。该无凭据 fixture 证明当时 tarball 的安装、Host 激活、public 状态机、v18 持久化、严格 RPC 和客户端投影，不证明真实模型已经正确理解材料。
