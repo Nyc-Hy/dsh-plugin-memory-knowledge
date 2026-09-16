@@ -360,7 +360,7 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     expect(await upgraded.listSourceUnderstandings(project)).toEqual(before)
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     expect(migrated.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'wiki_runs'").get())
       .toEqual({ count: 1 })
     expect(migrated.prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'wiki_tasks'").get())
@@ -533,6 +533,7 @@ describe('memory knowledge engine', () => {
         fileSynthesis: planned.run.fileSynthesis,
         materialExposure: planned.run.materialExposure,
         businessQuestions: planned.run.businessQuestions,
+        crossModuleFlows: planned.run.crossModuleFlows,
       },
       tasks: snapshot!.tasks.map((task, index) => ({
         ...task,
@@ -551,7 +552,8 @@ describe('memory knowledge engine', () => {
       incompleteFileCount: null,
     })
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(snapshot!.run.crossModuleFlows).toMatchObject({ rulesVersion: 0, state: 'unsupported' })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     expect(migrated.prepare('SELECT count(*) AS count FROM wiki_tasks').get()).toEqual({ count: 1 })
     migrated.close()
   })
@@ -637,7 +639,7 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
-      run: { schemaVersion: 10, status: 'verifying', tasks: { taskCount: 2, succeeded: 1, planned: 1 } },
+      run: { schemaVersion: 11, status: 'verifying', tasks: { taskCount: 2, succeeded: 1, planned: 1 } },
       tasks: [
         { kind: 'analysis', status: 'succeeded', claimIds: [] },
         { kind: 'verification', status: 'planned', claimIds: [claimId] },
@@ -645,7 +647,7 @@ describe('memory knowledge engine', () => {
       claims: [{ id: claimId, status: 'proposed' }],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -746,7 +748,7 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     expect(await upgraded.getWikiRunSnapshot(planned.run.id)).toMatchObject({
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         status: 'synthesizing',
         consistency: {
           rulesVersion: 1,
@@ -763,7 +765,7 @@ describe('memory knowledge engine', () => {
       ]),
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -874,7 +876,7 @@ describe('memory knowledge engine', () => {
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         status: 'synthesizing',
         rootPageIds: [],
         pageGeneration: { planned: true, claimCount: 1, taskCount: 1 },
@@ -888,7 +890,7 @@ describe('memory knowledge engine', () => {
       ]),
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -934,9 +936,9 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         materialRanges: {
           rangeCount: 0,
           totalBytes: 0,
@@ -951,7 +953,7 @@ describe('memory knowledge engine', () => {
       tasks: [expect.objectContaining({ materialRanges: [] })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -1030,9 +1032,9 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         fileSynthesis: {
           status: 'unassessed',
           completeFileCount: 0,
@@ -1042,7 +1044,7 @@ describe('memory knowledge engine', () => {
       claims: [expect.objectContaining({ id: claimId, sourceClaimIds: [] })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -1130,9 +1132,9 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         materialExposure: {
           requiredTaskCount: 1,
           verifiedTaskCount: 0,
@@ -1145,7 +1147,7 @@ describe('memory knowledge engine', () => {
       })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
     },
   )
@@ -1192,9 +1194,9 @@ describe('memory knowledge engine', () => {
     engines.push(upgraded)
     const migrated = await upgraded.getWikiRunSnapshot(planned.run.id)
     expect(migrated).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       run: {
-        schemaVersion: 10,
+        schemaVersion: 11,
         businessQuestions: {
           state: 'unsupported',
           requiredQuestionCount: 9,
@@ -1208,7 +1210,7 @@ describe('memory knowledge engine', () => {
       })],
     })
     const database = new DatabaseSync(databasePath)
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 
@@ -1371,7 +1373,7 @@ describe('memory knowledge engine', () => {
       analyzedAt,
     }))
     const analyzed = finalizeWikiRunSnapshot({
-      schemaVersion: 10,
+      schemaVersion: 11,
       run: { ...first.run.run, coverage: summarizeWikiCoverage(analyzedCoverage), updatedAt: analyzedAt },
       coverage: analyzedCoverage,
       tasks: first.run.tasks,

@@ -4,7 +4,7 @@ Wiki Agent 为每个事实任务维护一个累计原文字节额度。相同任
 
 ## 配置与计数
 
-Wiki Agent Provider 的 `maxTaskMaterialBytes` 默认是 33554432 字节（32 MiB），必须是正安全整数。它在该任务第一次预扣时固定；更改配置只影响尚无账本的任务，不自动扩大旧任务的额度。`maxMaterialBytes` 仍限制单次读取，`maxOutputTokens` 仍限制单次模型请求的输出。分析、文件综合、核验和一致性任务分别记账；Page 任务不读取原文。
+Wiki Agent Provider 的 `maxTaskMaterialBytes` 默认是 33554432 字节（32 MiB），必须是正安全整数。它在该任务第一次预扣时固定；更改配置只影响尚无账本的任务，不自动扩大旧任务的额度。`maxMaterialBytes` 仍限制单次读取，`maxOutputTokens` 仍限制单次模型请求的输出。分析、文件综合、核验、一致性和跨模块 flow 任务分别记账；flow 任务为每条候选 Claim 回读 supports 原文，Page 任务不读取原文。
 
 每次读取先按完整文件或含上下文的完整区间字节数预扣，再访问材料 Provider。重复读取再次预扣；流中断、哈希不符、编码失败、取消和进程退出不退款。预扣量因此可能大于实际返回量，但不会把可能已经返回的原文漏算。工具成功结果同时显示累计预扣与总额度；不按字符密度换算成 token。
 

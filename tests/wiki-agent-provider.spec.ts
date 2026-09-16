@@ -33,13 +33,16 @@ import { makeTempProject } from './helpers.js'
 const contexts: Context[] = []
 const stores: MemoryKnowledgeEngine[] = []
 
-function businessQuestionArgs(claimCount: number): Array<{
+function businessQuestionArgs(
+  claimCount: number,
+  evidenceKey: typeof WIKI_BUSINESS_QUESTION_DEFINITIONS[number]['key'] = 'purpose-and-terms',
+): Array<{
   key: typeof WIKI_BUSINESS_QUESTION_DEFINITIONS[number]['key']
   outcome: 'evidence' | 'not-applicable'
   claimIndexes: number[]
   reason?: string
 }> {
-  return WIKI_BUSINESS_QUESTION_DEFINITIONS.map((definition, index) => claimCount > 0 && index === 0
+  return WIKI_BUSINESS_QUESTION_DEFINITIONS.map(definition => claimCount > 0 && definition.key === evidenceKey
     ? { key: definition.key, outcome: 'evidence', claimIndexes: Array.from({ length: claimCount }, (_, claim) => claim) }
     : { key: definition.key, outcome: 'not-applicable', claimIndexes: [], reason: '当前测试材料不覆盖该项目问题。' })
 }
@@ -67,6 +70,7 @@ async function bench(
   providerConfig: WikiAgentConfig & {
     ranged?: boolean
     twoRanges?: boolean
+    twoFiles?: boolean
     auditModelInputs?: boolean | 'mismatched-call'
   } = {},
 ): Promise<{ ctx: Context; store: MemoryKnowledgeEngine; planned: WikiRunSnapshot; current(): WikiRunSnapshot; reads(): number; resumes(): number }> {
@@ -74,7 +78,7 @@ async function bench(
   const bytes = new TextEncoder().encode(content)
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
   const contentLineCount = Math.max(1, content.split('\n').length - (content.endsWith('\n') ? 1 : 0))
-  const { ranged = false, twoRanges = false, auditModelInputs = false, ...wikiProviderConfig } = providerConfig
+  const { ranged = false, twoRanges = false, twoFiles = false, auditModelInputs = false, ...wikiProviderConfig } = providerConfig
   const newline = bytes.indexOf(10) + 1
   if (twoRanges && (newline <= 0 || newline >= bytes.byteLength)) {
     throw new Error('two-range Wiki Agent tests require at least two non-empty lines')
@@ -118,7 +122,19 @@ async function bench(
     catalogHash: `sha256:${'7'.repeat(64)}`,
     catalogComplete: true,
     catalogOmittedItemCount: 0,
-    entries: [ranged ? {
+    entries: twoFiles ? [{
+      sourceId: KnowledgeSourceId('src_44444444-4444-4444-8444-444444444444'),
+      path: 'src/entry.unknown',
+      shardKey: 'shard_flow_entry',
+      byteSize: bytes.byteLength,
+      revision: { kind: 'content-hash', contentHash },
+    }, {
+      sourceId: KnowledgeSourceId('src_55555555-5555-4555-8555-555555555555'),
+      path: 'src/service.unknown',
+      shardKey: 'shard_flow_service',
+      byteSize: bytes.byteLength,
+      revision: { kind: 'content-hash', contentHash },
+    }] : [ranged ? {
       sourceId: KnowledgeSourceId('src_44444444-4444-4444-8444-444444444444'),
       path: 'README.unknown',
       byteSize: bytes.byteLength,
@@ -254,7 +270,7 @@ async function bench(
           }))
         })
         agentCtx.on('tools/execute', async (exec, next) => {
-          if (!['wiki_task_submit', 'wiki_file_synthesis_submit', 'wiki_verification_submit'].includes(exec.name)) {
+          if (!['wiki_task_submit', 'wiki_file_synthesis_submit', 'wiki_verification_submit', 'wiki_flow_submit'].includes(exec.name)) {
             return next()
           }
           const request = markAgentLoopRequest({
@@ -992,6 +1008,176 @@ describe('durable Wiki Agent provider', () => {
       status: 'needs-review',
       consistency: { planned: true, candidatePairCount: 1, candidatePairsComplete: true },
     })
+  })
+
+  it('exposes only the flow submit tool and audits evidence-backed cross-module flow synthesis', async () => {
+    const taskKinds: string[] = []
+    const test = await bench('入口调用服务，服务写入存储。\n', async (agent, message) => {
+      const toolNames = agent.ctx.tools.schemas(agent).map(value => value.name).sort()
+      if (toolNames.includes('wiki_page_context')) {
+        taskKinds.push('page')
+        const context = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId('flow-page-context'),
+          name: 'wiki_page_context',
+          arguments: {},
+          agent,
+        })
+        const value = context.value as { claims: Array<{ claimId: string }> }
+        const submit = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId('flow-page-submit'),
+          name: 'wiki_page_submit',
+          arguments: {
+            pages: [{ slug: 'primary-flow', title: '主要流程', claimIds: value.claims.map(claim => claim.claimId), childSlugs: [] }],
+          },
+          agent,
+        })
+        expect(submit.isError).toBe(false)
+      } else if (toolNames.includes('wiki_flow_submit')) {
+        taskKinds.push('flow')
+        expect(toolNames).toEqual([
+          'wiki_catalog_ranges',
+          'wiki_catalog_search',
+          'wiki_flow_submit',
+          'wiki_material_read',
+          'wiki_verification_context',
+        ])
+        const context = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId('flow-context'),
+          name: 'wiki_verification_context',
+          arguments: {},
+          agent,
+        })
+        const value = context.value as {
+          taskKind: string
+          claims: Array<{ claimId: string }>
+          coverage: Array<{ coverageId: string }>
+        }
+        expect(value.taskKind).toBe('flow')
+        expect(value.claims).toHaveLength(2)
+        for (const [index, coverage] of value.coverage.entries()) {
+          const read = await agent.ctx.tools.execute({
+            signal: new AbortController().signal,
+            callId: ToolCallId(`flow-read-${index}`),
+            name: 'wiki_material_read',
+            arguments: { coverageId: coverage.coverageId },
+            agent,
+          })
+          expect(read.isError).toBe(false)
+        }
+        const submit = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId('flow-submit'),
+          name: 'wiki_flow_submit',
+          arguments: {
+            flows: [{
+              title: '订单处理',
+              steps: value.claims.map((claim, index) => ({
+                title: index === 0 ? '入口接收订单' : '服务持久化订单',
+                claimIds: [claim.claimId],
+              })),
+            }],
+            unresolvedClaimIds: [],
+          },
+          agent,
+        })
+        expect(submit.isError).toBe(false)
+      } else if (toolNames.includes('wiki_verification_context')) {
+        const context = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId(`flow-verification-context-${taskKinds.length}`),
+          name: 'wiki_verification_context',
+          arguments: {},
+          agent,
+        })
+        const value = context.value as {
+          taskKind: 'verification' | 'consistency'
+          claims: Array<{ claimId: string }>
+          coverage: Array<{ coverageId: string }>
+        }
+        taskKinds.push(value.taskKind)
+        for (const [index, coverage] of value.coverage.entries()) {
+          await agent.ctx.tools.execute({
+            signal: new AbortController().signal,
+            callId: ToolCallId(`flow-verification-read-${taskKinds.length}-${index}`),
+            name: 'wiki_material_read',
+            arguments: { coverageId: coverage.coverageId },
+            agent,
+          })
+        }
+        const submit = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId(`flow-verification-submit-${taskKinds.length}`),
+          name: 'wiki_verification_submit',
+          arguments: {
+            decisions: value.claims.map(claim => ({ claimId: claim.claimId, outcome: 'verified' })),
+            conflicts: [],
+          },
+          agent,
+        })
+        expect(submit.isError).toBe(false)
+      } else {
+        taskKinds.push('analysis')
+        const context = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId(`flow-analysis-context-${taskKinds.length}`),
+          name: 'wiki_task_context',
+          arguments: {},
+          agent,
+        })
+        const value = context.value as { coverage: Array<{ coverageId: string; path: string }> }
+        expect(value.coverage).toHaveLength(1)
+        const coverage = value.coverage[0]!
+        await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId(`flow-analysis-read-${taskKinds.length}`),
+          name: 'wiki_material_read',
+          arguments: { coverageId: coverage.coverageId },
+          agent,
+        })
+        const entry = coverage.path.includes('entry')
+        const submit = await agent.ctx.tools.execute({
+          signal: new AbortController().signal,
+          callId: ToolCallId(`flow-analysis-submit-${taskKinds.length}`),
+          name: 'wiki_task_submit',
+          arguments: {
+            coverage: [{ coverageId: coverage.coverageId, outcome: 'analyzed' }],
+            citations: [{ key: 'flow-source', coverageId: coverage.coverageId, role: 'supports' }],
+            claims: [{
+              kind: 'assertion',
+              statement: entry ? '入口模块接收订单并调用服务模块。' : '服务模块处理订单并写入存储。',
+              citationKeys: ['flow-source'],
+              coverageIds: [coverage.coverageId],
+            }],
+            questions: businessQuestionArgs(1, 'primary-flows'),
+          },
+          agent,
+        })
+        expect(submit.isError).toBe(false)
+      }
+      appendCompletedTurn(agent.session, message)
+    }, {}, { twoFiles: true, verificationBatchClaims: 2, auditModelInputs: true })
+
+    for (let index = 0; index < 8 && test.current().run.status !== 'needs-review'; index += 1) {
+      await test.ctx.wikiGeneration.runNext(test.planned.run.projectRoot)
+    }
+    expect(taskKinds).toContain('flow')
+    expect(taskKinds.at(-1)).toBe('page')
+    expect(test.current().run).toMatchObject({
+      status: 'needs-review',
+      crossModuleFlows: {
+        state: 'complete',
+        candidateClaimCount: 2,
+        taskCount: 1,
+        completedTaskCount: 1,
+        flowCount: 1,
+        stepCount: 2,
+        unresolvedClaimCount: 0,
+      },
+    })
+    expect(test.current().tasks.find(task => task.kind === 'flow')?.modelInputAudit.state).toBe('verified')
   })
 
   it('marks a completed model turn failed when it never calls wiki_task_submit', async () => {

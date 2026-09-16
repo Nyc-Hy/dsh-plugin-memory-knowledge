@@ -186,6 +186,18 @@ export interface MemoryUiWikiBusinessQuestionSummary {
   notApplicableFindingCount: number
 }
 
+/** Bounded cross-module flow progress without Claim text, paths, or Agent sessions. */
+export interface MemoryUiWikiCrossModuleFlowSummary {
+  rulesVersion: number
+  state: 'unplanned' | 'running' | 'complete' | 'unsupported'
+  candidateClaimCount: number
+  taskCount: number
+  completedTaskCount: number
+  flowCount: number
+  stepCount: number
+  unresolvedClaimCount: number
+}
+
 /** Browser-safe state of one required project-knowledge activation check. */
 export interface MemoryUiWikiCompletionCheck {
   id: 'catalog' | 'coverage' | 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'pages'
@@ -212,6 +224,7 @@ export interface MemoryUiWikiRunSummary {
   tasks: MemoryUiWikiTaskSummary
   fileSynthesis: MemoryUiWikiFileSynthesisSummary
   consistency: MemoryUiWikiConsistencySummary
+  crossModuleFlows: MemoryUiWikiCrossModuleFlowSummary
   pageGeneration: MemoryUiWikiPageGenerationSummary
   businessQuestions: MemoryUiWikiBusinessQuestionSummary
   completion: MemoryUiWikiCompletionReport
@@ -278,7 +291,7 @@ export interface MemoryUiWikiTaskRunResult {
 /** 浏览器可见的任务预算，不含 Session、项目路径或材料正文。 */
 export interface MemoryUiWikiBudget {
   taskId: string
-  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'page'
+  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'flow' | 'page'
   status: 'planned' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   limitBytes: number
   reservedBytes: number

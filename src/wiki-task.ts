@@ -10,10 +10,12 @@ import {
   activeWikiClaims,
   advanceWikiFileSynthesisTasks,
   createWikiConsistencyTasks,
+  createWikiCrossModuleFlowTasks,
   createWikiFileSynthesisTasks,
   createWikiPageTasks,
   createWikiVerificationTasks,
   DEFAULT_WIKI_CONSISTENCY_CONFIG,
+  DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG,
   DEFAULT_WIKI_FILE_SYNTHESIS_CONFIG,
   DEFAULT_WIKI_PAGE_CONFIG,
   DEFAULT_WIKI_VERIFICATION_BATCH_CLAIMS,
@@ -26,6 +28,7 @@ import {
   createPendingWikiBusinessQuestions,
   createUnsupportedWikiBusinessQuestions,
   summarizeWikiBusinessQuestions,
+  summarizeWikiCrossModuleFlows,
   summarizeWikiCoverage,
   summarizeWikiMaterialExposure,
   summarizeWikiMaterialRanges,
@@ -36,6 +39,8 @@ import {
   type WikiClaim,
   type WikiConflict,
   type WikiConsistencyConfig,
+  type WikiCrossModuleFlow,
+  type WikiCrossModuleFlowConfig,
   type WikiCoverageItem,
   type WikiFileSynthesisConfig,
   type WikiModelInputAudit,
@@ -88,6 +93,12 @@ export interface WikiPageDraft {
 /** Complete organizational tree submitted for one bounded Page task. */
 export interface WikiPageSubmission {
   pages: WikiPageDraft[]
+}
+
+/** Evidence-bound flows plus Claims whose ordering could not be established. */
+export interface WikiCrossModuleFlowSubmission {
+  flows: WikiCrossModuleFlow[]
+  unresolvedClaimIds: WikiClaimId[]
 }
 
 function taskById(snapshot: WikiRunSnapshot, id: WikiTaskId): WikiShardTask {
@@ -152,6 +163,23 @@ function planPageGeneration(
   return [...tasks, ...plan.tasks]
 }
 
+function planCrossModuleFlows(
+  run: WikiRunSnapshot['run'],
+  tasks: WikiShardTask[],
+  coverage: readonly WikiCoverageItem[],
+  claims: readonly WikiClaim[],
+  timestamp: string,
+  flowConfig: WikiCrossModuleFlowConfig,
+  pageConfig: WikiPageConfig,
+): WikiShardTask[] {
+  const plan = createWikiCrossModuleFlowTasks(run.id, coverage, claims, tasks, timestamp, flowConfig)
+  run.crossModuleFlows = plan.summary
+  const nextTasks = [...tasks, ...plan.tasks]
+  if (plan.tasks.length === 0) return planPageGeneration(run, nextTasks, coverage, claims, timestamp, pageConfig)
+  run.status = 'synthesizing'
+  return nextTasks
+}
+
 function planVerification(
   run: WikiRunSnapshot['run'],
   tasks: WikiShardTask[],
@@ -161,6 +189,7 @@ function planVerification(
   timestamp: string,
   verificationBatchClaims: number,
   consistencyConfig: WikiConsistencyConfig,
+  flowConfig: WikiCrossModuleFlowConfig,
   pageConfig: WikiPageConfig,
 ): WikiShardTask[] {
   const activeClaims = activeWikiClaims(claims)
@@ -188,7 +217,7 @@ function planVerification(
   nextTasks = [...nextTasks, ...plan.tasks]
   run.consistency = plan.summary
   if (plan.tasks.length === 0) {
-    return planPageGeneration(run, nextTasks, coverage, activeClaims, timestamp, pageConfig)
+    return planCrossModuleFlows(run, nextTasks, coverage, activeClaims, timestamp, flowConfig, pageConfig)
   }
   run.status = 'verifying'
   return nextTasks
@@ -243,13 +272,14 @@ export function startWikiTask(
   const run = structuredClone(snapshot.run)
   run.status = current.kind === 'analysis' || current.kind === 'file-synthesis'
     ? 'analyzing'
-    : current.kind === 'page'
+    : current.kind === 'page' || current.kind === 'flow'
       ? 'synthesizing'
       : 'verifying'
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -302,13 +332,14 @@ export function failWikiTask(
     ? 'failed'
     : current.kind === 'file-synthesis'
       ? 'analyzing'
-      : current.kind === 'page'
+      : current.kind === 'page' || current.kind === 'flow'
         ? 'synthesizing'
         : 'verifying'
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   run.failure = normalizedFailure
@@ -335,6 +366,7 @@ export function succeedWikiTask(
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
   fileSynthesisConfig: WikiFileSynthesisConfig = DEFAULT_WIKI_FILE_SYNTHESIS_CONFIG,
+  flowConfig: WikiCrossModuleFlowConfig = DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG,
   modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
@@ -463,6 +495,7 @@ export function succeedWikiTask(
         timestamp,
         verificationBatchClaims,
         consistencyConfig,
+        flowConfig,
         pageConfig,
       )
     }
@@ -471,6 +504,7 @@ export function succeedWikiTask(
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
   run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.failure
@@ -495,6 +529,7 @@ export function succeedWikiFileSynthesisTask(
   verificationBatchClaims = DEFAULT_WIKI_VERIFICATION_BATCH_CLAIMS,
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
+  flowConfig: WikiCrossModuleFlowConfig = DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG,
   modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
@@ -560,11 +595,14 @@ export function succeedWikiFileSynthesisTask(
       timestamp,
       verificationBatchClaims,
       consistencyConfig,
+      flowConfig,
       pageConfig,
     )
   }
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -589,6 +627,7 @@ export function succeedWikiVerificationTask(
   now = new Date().toISOString(),
   consistencyConfig: WikiConsistencyConfig = DEFAULT_WIKI_CONSISTENCY_CONFIG,
   pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
+  flowConfig: WikiCrossModuleFlowConfig = DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG,
   modelInputAudit?: WikiModelInputAudit,
 ): WikiRunSnapshot {
   const timestamp = canonicalTimestamp(now)
@@ -652,18 +691,20 @@ export function succeedWikiVerificationTask(
     tasks = [...tasks, ...plan.tasks]
     run.consistency = plan.summary
     if (plan.tasks.length === 0) {
-      tasks = planPageGeneration(run, tasks, snapshot.coverage, claims, timestamp, pageConfig)
+      tasks = planCrossModuleFlows(run, tasks, snapshot.coverage, claims, timestamp, flowConfig, pageConfig)
     } else {
       run.status = 'verifying'
     }
   } else if (current.kind === 'consistency'
     && tasks.filter(task => task.kind === 'consistency').every(task => task.status === 'succeeded')) {
-    tasks = planPageGeneration(run, tasks, snapshot.coverage, claims, timestamp, pageConfig)
+    tasks = planCrossModuleFlows(run, tasks, snapshot.coverage, claims, timestamp, flowConfig, pageConfig)
   } else {
     run.status = 'verifying'
   }
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -676,6 +717,100 @@ export function succeedWikiVerificationTask(
     citations: [...snapshot.citations.map(value => structuredClone(value)), ...structuredClone(submission.citations)],
     claims,
     conflicts: [...snapshot.conflicts.map(value => structuredClone(value)), ...structuredClone(submission.conflicts)],
+    pages: structuredClone(snapshot.pages),
+  })
+}
+
+/** Commit one flow task after every candidate Claim was either placed in evidence or left explicit. */
+export function succeedWikiCrossModuleFlowTask(
+  snapshot: WikiRunSnapshot,
+  id: WikiTaskId,
+  submission: WikiCrossModuleFlowSubmission,
+  now = new Date().toISOString(),
+  pageConfig: WikiPageConfig = DEFAULT_WIKI_PAGE_CONFIG,
+  modelInputAudit?: WikiModelInputAudit,
+): WikiRunSnapshot {
+  const timestamp = canonicalTimestamp(now)
+  const current = taskById(snapshot, id)
+  if (current.status !== 'running') {
+    throw new Error(`memory-knowledge: Wiki task ${id} cannot succeed from ${current.status}`)
+  }
+  if (current.kind !== 'flow') throw new Error('memory-knowledge: this task does not accept a flow submission')
+  const assigned = new Set(current.claimIds.map(String))
+  const accounted = new Set(submission.unresolvedClaimIds.map(String))
+  if (accounted.size !== submission.unresolvedClaimIds.length
+    || [...accounted].some(value => !assigned.has(value))) {
+    throw new Error('memory-knowledge: unresolved flow Claims must be unique task inputs')
+  }
+  const claimById = new Map(snapshot.claims.map(claim => [String(claim.id), claim]))
+  const flows = submission.flows.map((flow): WikiCrossModuleFlow => {
+    const title = flow.title.trim()
+    if (title.length === 0 || title.length > MAX_WIKI_PAGE_TITLE_CHARACTERS || flow.steps.length < 2) {
+      throw new Error('memory-knowledge: a Wiki flow requires a bounded title and at least two steps')
+    }
+    const flowCoverage = new Set<string>()
+    const steps = flow.steps.map(step => {
+      const stepTitle = step.title.trim()
+      if (stepTitle.length === 0 || stepTitle.length > MAX_WIKI_PAGE_TITLE_CHARACTERS
+        || step.claimIds.length === 0 || new Set(step.claimIds.map(String)).size !== step.claimIds.length) {
+        throw new Error('memory-knowledge: a Wiki flow step requires a bounded title and unique Claims')
+      }
+      for (const claimIdValue of step.claimIds) {
+        const key = String(claimIdValue)
+        if (!assigned.has(key) || accounted.has(key)) {
+          throw new Error('memory-knowledge: each flow Claim must be used or unresolved exactly once')
+        }
+        accounted.add(key)
+        for (const coverageIdValue of claimById.get(key)!.coverageIds) flowCoverage.add(String(coverageIdValue))
+      }
+      return { title: stepTitle, claimIds: [...step.claimIds] }
+    })
+    if (flowCoverage.size < 2) {
+      throw new Error('memory-knowledge: a cross-module Wiki flow requires at least two Coverage items')
+    }
+    return { title, steps }
+  })
+  if (accounted.size !== assigned.size) {
+    throw new Error('memory-knowledge: Wiki flow synthesis must account for every assigned Claim')
+  }
+  let tasks = snapshot.tasks.map((task): WikiShardTask => task.id !== id
+    ? structuredClone(task)
+    : {
+        ...structuredClone(task),
+        status: 'succeeded',
+        modelInputAudit: structuredClone(modelInputAudit ?? current.modelInputAudit),
+        crossModuleFlow: {
+          rulesVersion: 1,
+          state: 'completed',
+          flows,
+          unresolvedClaimIds: [...submission.unresolvedClaimIds],
+        },
+        updatedAt: timestamp,
+        completedAt: timestamp,
+      })
+  const run = structuredClone(snapshot.run)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
+  if (tasks.filter(task => task.kind === 'flow').every(task => task.status === 'succeeded')) {
+    tasks = planPageGeneration(run, tasks, snapshot.coverage, snapshot.claims, timestamp, pageConfig)
+  } else {
+    run.status = 'synthesizing'
+  }
+  run.materialRanges = summarizeWikiMaterialRanges(tasks)
+  run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
+  run.crossModuleFlows = summarizeWikiCrossModuleFlows(tasks, run.crossModuleFlows)
+  run.tasks = summarizeWikiTasks(tasks)
+  run.updatedAt = timestamp
+  delete run.completedAt
+  delete run.failure
+  return finalizeWikiRunSnapshot({
+    schemaVersion: snapshot.schemaVersion,
+    run,
+    coverage: structuredClone(snapshot.coverage),
+    tasks,
+    citations: structuredClone(snapshot.citations),
+    claims: structuredClone(snapshot.claims),
+    conflicts: structuredClone(snapshot.conflicts),
     pages: structuredClone(snapshot.pages),
   })
 }

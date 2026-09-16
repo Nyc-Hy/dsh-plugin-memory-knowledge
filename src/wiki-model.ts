@@ -27,7 +27,7 @@ import type { ProvenanceRef } from './model.js'
 import { assertProvenanceRefs, PORTABLE_RELATIVE_PATH_PATTERN } from './schema.js'
 
 /** Current local LLM Wiki runtime format. */
-export const WIKI_RUN_SCHEMA_VERSION = 10 as const
+export const WIKI_RUN_SCHEMA_VERSION = 11 as const
 
 /** Version of the final Provider-request material exposure audit. */
 export const WIKI_MODEL_INPUT_AUDIT_RULES_VERSION = 1
@@ -148,6 +148,21 @@ export const DEFAULT_WIKI_CONSISTENCY_CONFIG: WikiConsistencyConfig = {
 
 /** Version of the language-neutral Claim-to-Page organization rules. */
 export const WIKI_PAGE_RULES_VERSION = 1
+
+/** Version of evidence-bound cross-module business-flow synthesis. */
+export const WIKI_CROSS_MODULE_FLOW_RULES_VERSION = 1
+
+/** Tunable bounds for one cross-module flow task. */
+export interface WikiCrossModuleFlowConfig {
+  maxClaimsPerTask: number
+  maxStatementCharactersPerTask: number
+}
+
+/** Bounded defaults keep project-flow prompts independent of repository size. */
+export const DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG: WikiCrossModuleFlowConfig = {
+  maxClaimsPerTask: 16,
+  maxStatementCharactersPerTask: 64_000,
+}
 
 /** Tunable bounds for one Claim-to-Page synthesis task. */
 export interface WikiPageConfig {
@@ -293,6 +308,48 @@ export interface WikiPageGenerationSummary {
   taskCount: number
 }
 
+/** One ordered, Claim-backed step in a cross-module business flow. */
+export interface WikiCrossModuleFlowStep {
+  title: string
+  claimIds: WikiClaimId[]
+}
+
+/** One task-local business flow; its order is evidence, not static dependency inference. */
+export interface WikiCrossModuleFlow {
+  title: string
+  steps: WikiCrossModuleFlowStep[]
+}
+
+/** Durable flow result owned by one bounded synthesis task. */
+export type WikiCrossModuleFlowTaskState = {
+  rulesVersion: 0
+  state: 'unsupported'
+  flows: []
+  unresolvedClaimIds: []
+} | {
+  rulesVersion: typeof WIKI_CROSS_MODULE_FLOW_RULES_VERSION
+  state: 'pending'
+  flows: []
+  unresolvedClaimIds: []
+} | {
+  rulesVersion: typeof WIKI_CROSS_MODULE_FLOW_RULES_VERSION
+  state: 'completed'
+  flows: WikiCrossModuleFlow[]
+  unresolvedClaimIds: WikiClaimId[]
+}
+
+/** Bounded project-flow progress retained in the Wiki run header. */
+export interface WikiCrossModuleFlowSummary {
+  rulesVersion: number
+  state: 'unplanned' | 'running' | 'complete' | 'unsupported'
+  candidateClaimCount: number
+  taskCount: number
+  completedTaskCount: number
+  flowCount: number
+  stepCount: number
+  unresolvedClaimCount: number
+}
+
 /** One immutable project material identity observed in a successful model request. */
 export interface WikiMaterialExposure {
   coverageId: WikiCoverageId
@@ -336,7 +393,7 @@ export interface WikiMaterialExposureSummary {
 export interface WikiShardTask {
   id: WikiTaskId
   runId: WikiRunId
-  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'page'
+  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'flow' | 'page'
   shardKey: string
   coverageIds: WikiCoverageId[]
   claimIds: WikiClaimId[]
@@ -345,6 +402,7 @@ export interface WikiShardTask {
   fileSynthesis?: WikiFileSynthesisTaskState
   modelInputAudit: WikiModelInputAudit
   businessQuestions?: WikiBusinessQuestionTaskState
+  crossModuleFlow?: WikiCrossModuleFlowTaskState
   status: WikiTaskStatus
   attemptCount: number
   agentSessionId?: SessionId
@@ -393,6 +451,7 @@ export interface WikiRun {
   tasks: WikiTaskSummary
   fileSynthesis: WikiFileSynthesisSummary
   consistency: WikiConsistencySummary
+  crossModuleFlows: WikiCrossModuleFlowSummary
   pageGeneration: WikiPageGenerationSummary
   rootPageIds: WikiPageId[]
   blockingReasons: string[]
@@ -749,10 +808,34 @@ const businessQuestionTaskStateSchema = z.discriminatedUnion('state', [
   }),
 ])
 
+const crossModuleFlowSchema = z.object({
+  title: pageTitle,
+  steps: z.array(z.object({
+    title: pageTitle,
+    claimIds: uniqueStrings(claimId).refine(values => values.length > 0, 'a flow step requires a Claim'),
+  }).strict()).min(2),
+}).strict()
+
+const crossModuleFlowTaskStateSchema = z.discriminatedUnion('state', [
+  z.object({
+    rulesVersion: z.literal(0), state: z.literal('unsupported'), flows: z.tuple([]), unresolvedClaimIds: z.tuple([]),
+  }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_CROSS_MODULE_FLOW_RULES_VERSION),
+    state: z.literal('pending'), flows: z.tuple([]), unresolvedClaimIds: z.tuple([]),
+  }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_CROSS_MODULE_FLOW_RULES_VERSION),
+    state: z.literal('completed'),
+    flows: z.array(crossModuleFlowSchema),
+    unresolvedClaimIds: uniqueStrings(claimId),
+  }).strict(),
+])
+
 const taskSchema = z.object({
   id: taskId,
   runId,
-  kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'page']),
+  kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'flow', 'page']),
   shardKey: nonEmpty,
   coverageIds: uniqueStrings(coverageId),
   claimIds: uniqueStrings(claimId),
@@ -771,6 +854,7 @@ const taskSchema = z.object({
   }).strict().optional(),
   modelInputAudit: modelInputAuditSchema,
   businessQuestions: businessQuestionTaskStateSchema.optional(),
+  crossModuleFlow: crossModuleFlowTaskStateSchema.optional(),
   status: z.enum(['planned', 'running', 'succeeded', 'failed', 'cancelled']),
   attemptCount: positiveOrZeroInteger,
   agentSessionId: sessionId.optional(),
@@ -782,6 +866,12 @@ const taskSchema = z.object({
 }).strict().superRefine((value, context) => {
   if ((value.kind === 'analysis') !== (value.businessQuestions !== undefined)) {
     context.addIssue({ code: 'custom', message: 'only Wiki analysis tasks must retain business-question state' })
+  }
+  if ((value.kind === 'flow') !== (value.crossModuleFlow !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'only Wiki flow tasks must retain cross-module flow state' })
+  }
+  if (value.crossModuleFlow?.state === 'completed' && value.status !== 'succeeded') {
+    context.addIssue({ code: 'custom', message: 'only a succeeded Wiki flow task may retain completed flows' })
   }
   if (value.businessQuestions?.state === 'completed' && value.status !== 'succeeded') {
     context.addIssue({ code: 'custom', message: 'only a succeeded Wiki analysis task may retain completed questions' })
@@ -816,6 +906,9 @@ const taskSchema = z.object({
   if (value.kind === 'consistency'
     && (value.coverageIds.length === 0 || value.claimIds.length < 2 || value.candidatePairs.length === 0)) {
     context.addIssue({ code: 'custom', message: 'a Wiki consistency task requires candidate pairs, claims, and coverage' })
+  }
+  if (value.kind === 'flow' && (value.claimIds.length === 0 || value.candidatePairs.length !== 0)) {
+    context.addIssue({ code: 'custom', message: 'a Wiki flow task requires Claims and no candidate pairs' })
   }
   if (value.kind === 'page' && (value.claimIds.length === 0 || value.candidatePairs.length !== 0)) {
     context.addIssue({ code: 'custom', message: 'a Wiki Page task requires claims and no candidate pairs' })
@@ -915,6 +1008,27 @@ const pageGenerationSummarySchema = z.object({
   }
 })
 
+const crossModuleFlowSummarySchema = z.object({
+  rulesVersion: positiveOrZeroInteger,
+  state: z.enum(['unplanned', 'running', 'complete', 'unsupported']),
+  candidateClaimCount: positiveOrZeroInteger,
+  taskCount: positiveOrZeroInteger,
+  completedTaskCount: positiveOrZeroInteger,
+  flowCount: positiveOrZeroInteger,
+  stepCount: positiveOrZeroInteger,
+  unresolvedClaimCount: positiveOrZeroInteger,
+}).strict().superRefine((value, context) => {
+  if (value.completedTaskCount > value.taskCount) {
+    context.addIssue({ code: 'custom', message: 'Wiki flow task totals are inconsistent' })
+  }
+  if (value.state === 'unplanned' && Object.entries(value).some(([key, count]) => key !== 'rulesVersion' && key !== 'state' && count !== 0)) {
+    context.addIssue({ code: 'custom', message: 'unplanned Wiki flow synthesis cannot report work' })
+  }
+  if (value.state === 'complete' && value.completedTaskCount !== value.taskCount) {
+    context.addIssue({ code: 'custom', message: 'complete Wiki flow synthesis requires every task' })
+  }
+})
+
 const runSchema = z.object({
   schemaVersion: z.literal(WIKI_RUN_SCHEMA_VERSION),
   id: runId,
@@ -940,6 +1054,7 @@ const runSchema = z.object({
   tasks: taskSummarySchema,
   fileSynthesis: fileSynthesisSummarySchema,
   consistency: consistencySummarySchema,
+  crossModuleFlows: crossModuleFlowSummarySchema,
   pageGeneration: pageGenerationSummarySchema,
   rootPageIds: uniqueStrings(pageId),
   blockingReasons: uniqueStrings(nonEmpty),
@@ -1101,6 +1216,53 @@ export function createUnplannedWikiPageGenerationSummary(): WikiPageGenerationSu
   }
 }
 
+/** Create an explicit not-yet-planned cross-module flow summary. */
+export function createUnplannedWikiCrossModuleFlowSummary(): WikiCrossModuleFlowSummary {
+  return {
+    rulesVersion: WIKI_CROSS_MODULE_FLOW_RULES_VERSION,
+    state: 'unplanned',
+    candidateClaimCount: 0,
+    taskCount: 0,
+    completedTaskCount: 0,
+    flowCount: 0,
+    stepCount: 0,
+    unresolvedClaimCount: 0,
+  }
+}
+
+/** Mark a migrated run whose earlier runtime did not assess cross-module flows. */
+export function createUnsupportedWikiCrossModuleFlowSummary(): WikiCrossModuleFlowSummary {
+  return { ...createUnplannedWikiCrossModuleFlowSummary(), rulesVersion: 0, state: 'unsupported' }
+}
+
+/** Create pending flow state for a newly planned task. */
+export function createPendingWikiCrossModuleFlow(): WikiCrossModuleFlowTaskState {
+  return { rulesVersion: WIKI_CROSS_MODULE_FLOW_RULES_VERSION, state: 'pending', flows: [], unresolvedClaimIds: [] }
+}
+
+/** Recompute task result totals without changing candidate coverage. */
+export function summarizeWikiCrossModuleFlows(
+  tasks: readonly WikiShardTask[],
+  previous: WikiCrossModuleFlowSummary,
+): WikiCrossModuleFlowSummary {
+  if (previous.state === 'unplanned' || previous.state === 'unsupported') return structuredClone(previous)
+  const flowTasks = tasks.filter(task => task.kind === 'flow')
+  if (previous.state === 'running' && previous.taskCount > 0 && flowTasks.length === 0) {
+    throw new Error('memory-knowledge: running Wiki cross-module flow tasks cannot disappear')
+  }
+  const completed = flowTasks.filter(task => task.crossModuleFlow?.state === 'completed')
+  const states = completed.map(task => task.crossModuleFlow).filter((value): value is Extract<WikiCrossModuleFlowTaskState, { state: 'completed' }> => value?.state === 'completed')
+  return {
+    ...structuredClone(previous),
+    state: completed.length === flowTasks.length ? 'complete' : 'running',
+    taskCount: flowTasks.length,
+    completedTaskCount: completed.length,
+    flowCount: states.reduce((total, value) => total + value.flows.length, 0),
+    stepCount: states.reduce((total, value) => total + value.flows.reduce((count, flow) => count + flow.steps.length, 0), 0),
+    unresolvedClaimCount: states.reduce((total, value) => total + value.unresolvedClaimIds.length, 0),
+  }
+}
+
 function assertUniqueIds(values: readonly { id: string }[], label: string): void {
   const ids = values.map(value => String(value.id))
   if (new Set(ids).size !== ids.length) throw new Error(`memory-knowledge: duplicate ${label} id`)
@@ -1188,6 +1350,10 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   if (JSON.stringify(snapshot.run.businessQuestions) !== JSON.stringify(expectedBusinessQuestions)) {
     throw new Error('memory-knowledge: Wiki business-question summary is inconsistent')
   }
+  const expectedCrossModuleFlows = summarizeWikiCrossModuleFlows(snapshot.tasks, snapshot.run.crossModuleFlows)
+  if (JSON.stringify(snapshot.run.crossModuleFlows) !== JSON.stringify(expectedCrossModuleFlows)) {
+    throw new Error('memory-knowledge: Wiki cross-module flow summary is inconsistent')
+  }
 
   const coverageById = new Map(snapshot.coverage.map(value => [String(value.id), value]))
   const claimById = new Map(snapshot.claims.map(value => [String(value.id), value]))
@@ -1196,6 +1362,7 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   const fileSynthesisClaimIds = new Set<string>()
   const verificationClaimIds = new Set<string>()
   const consistencyClaimIds = new Set<string>()
+  const flowClaimIds = new Set<string>()
   const pageClaimIds = new Set<string>()
   const taskShardKeys = new Set<string>()
   const materialRangeById = new Map<string, { range: WikiMaterialRange; task: WikiShardTask }>()
@@ -1274,7 +1441,9 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
           ? verificationClaimIds
           : task.kind === 'consistency'
             ? consistencyClaimIds
-            : pageClaimIds
+            : task.kind === 'flow'
+              ? flowClaimIds
+              : pageClaimIds
       for (const id of task.claimIds) {
         const key = task.kind === 'file-synthesis' ? `${task.fileSynthesis!.level}:${id}` : String(id)
         if (assignedClaims.has(key)) {
@@ -1314,6 +1483,29 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
         if (candidateClaimIds.size !== task.claimIds.length
           || task.claimIds.some(id => !candidateClaimIds.has(String(id)))) {
           throw new Error('memory-knowledge: Wiki consistency task Claims do not match its candidate pairs')
+        }
+      }
+      if (task.kind === 'flow' && task.crossModuleFlow?.state === 'completed') {
+        const assigned = new Set(task.claimIds.map(String))
+        const accounted = new Set(task.crossModuleFlow.unresolvedClaimIds.map(String))
+        for (const flow of task.crossModuleFlow.flows) {
+          const flowCoverage = new Set<string>()
+          for (const step of flow.steps) {
+            for (const claimIdValue of step.claimIds) {
+              const key = String(claimIdValue)
+              if (!assigned.has(key) || accounted.has(key)) {
+                throw new Error('memory-knowledge: Wiki flow Claims must be unique task inputs')
+              }
+              accounted.add(key)
+              for (const coverageIdValue of claimById.get(key)!.coverageIds) flowCoverage.add(String(coverageIdValue))
+            }
+          }
+          if (flowCoverage.size < 2) {
+            throw new Error('memory-knowledge: a cross-module Wiki flow requires at least two Coverage items')
+          }
+        }
+        if (accounted.size !== assigned.size) {
+          throw new Error('memory-knowledge: Wiki flow synthesis must account for every assigned Claim')
         }
       }
     }
@@ -1387,6 +1579,7 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   const fileSynthesisTasks = snapshot.tasks.filter(task => task.kind === 'file-synthesis')
   const verificationTasks = snapshot.tasks.filter(task => task.kind === 'verification')
   const consistencyTasks = snapshot.tasks.filter(task => task.kind === 'consistency')
+  const flowTasks = snapshot.tasks.filter(task => task.kind === 'flow')
   const pageTasks = snapshot.tasks.filter(task => task.kind === 'page')
   const analysisComplete = analysisTasks.length > 0
     ? analysisTasks.every(task => task.status === 'succeeded')
@@ -1424,7 +1617,12 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   }
   const consistencyComplete = snapshot.run.consistency.planned
     && consistencyTasks.every(task => task.status === 'succeeded')
-  if (pageTasks.length > 0 && !consistencyComplete) {
+  if (flowTasks.length > 0 && !consistencyComplete) {
+    throw new Error('memory-knowledge: Wiki flow synthesis cannot start before global consistency completes')
+  }
+  const flowsSettled = ['complete', 'unsupported'].includes(snapshot.run.crossModuleFlows.state)
+    && flowTasks.every(task => task.status === 'succeeded')
+  if (pageTasks.length > 0 && (!consistencyComplete || !flowsSettled)) {
     throw new Error('memory-knowledge: Wiki Page generation cannot start before global consistency completes')
   }
   const eligiblePageClaimIds = new Set(activeClaims
@@ -1443,15 +1641,16 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
     throw new Error('memory-knowledge: Wiki Page tasks do not cover every eligible Claim')
   }
   if (snapshot.run.status === 'synthesizing'
-    && (!snapshot.run.pageGeneration.planned || pageTasks.every(task => task.status === 'succeeded'))) {
-    throw new Error('memory-knowledge: synthesizing Wiki runs require unfinished Page tasks')
+    && ((snapshot.run.pageGeneration.planned && pageTasks.every(task => task.status === 'succeeded'))
+      || (!snapshot.run.pageGeneration.planned && flowsSettled))) {
+    throw new Error('memory-knowledge: synthesizing Wiki runs require unfinished flow or Page tasks')
   }
   if (['synthesizing', 'needs-review', 'complete'].includes(snapshot.run.status)
     && (!snapshot.run.consistency.planned || consistencyTasks.some(task => task.status !== 'succeeded'))) {
     throw new Error('memory-knowledge: reviewed Wiki runs require completed global consistency recall')
   }
   if (['needs-review', 'complete'].includes(snapshot.run.status)
-    && (!snapshot.run.pageGeneration.planned || pageTasks.some(task => task.status !== 'succeeded'))) {
+    && (!flowsSettled || !snapshot.run.pageGeneration.planned || pageTasks.some(task => task.status !== 'succeeded'))) {
     throw new Error('memory-knowledge: reviewed Wiki runs require completed Page generation')
   }
   if (snapshot.run.status === 'analyzing' && analysisComplete && fileSynthesisComplete) {
@@ -1931,6 +2130,15 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
           state: 'fail',
           issueCount: Math.max(1, run.businessQuestions.analysisTaskCount - run.businessQuestions.completedTaskCount),
         }
+  const crossModuleFlows: WikiCompletionCheck = run.crossModuleFlows.state === 'unsupported'
+    ? { id: 'cross-module-flows', state: 'unsupported', issueCount: 1 }
+    : run.crossModuleFlows.state === 'complete'
+      ? { id: 'cross-module-flows', state: 'pass', issueCount: 0 }
+      : {
+          id: 'cross-module-flows',
+          state: 'fail',
+          issueCount: Math.max(1, run.crossModuleFlows.taskCount - run.crossModuleFlows.completedTaskCount),
+        }
   const checks: WikiCompletionCheck[] = [{
     id: 'catalog',
     state: catalogComplete ? 'pass' : 'fail',
@@ -1955,11 +2163,7 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
     id: 'pages',
     state: pagesComplete ? 'pass' : 'fail',
     issueCount: pagesComplete ? 0 : 1,
-  }, materialExposure, businessQuestions, {
-    id: 'cross-module-flows',
-    state: 'unsupported',
-    issueCount: 1,
-  }]
+  }, materialExposure, businessQuestions, crossModuleFlows]
   return {
     eligibleForActivation: checks.every(check => check.state === 'pass'),
     checks,
@@ -2414,6 +2618,84 @@ export function createWikiPageTasks(
       planned: true,
       claimCount: eligible.length,
       taskCount: tasks.length,
+    },
+  }
+}
+
+/** Build bounded flow-synthesis tasks from analysis Claims explicitly tied to the primary-flow question. */
+export function createWikiCrossModuleFlowTasks(
+  runId: WikiRunId,
+  coverage: readonly WikiCoverageItem[],
+  claims: readonly WikiClaim[],
+  tasks: readonly WikiShardTask[],
+  now: string,
+  config: WikiCrossModuleFlowConfig = DEFAULT_WIKI_CROSS_MODULE_FLOW_CONFIG,
+): { tasks: WikiShardTask[]; summary: WikiCrossModuleFlowSummary } {
+  if (!Number.isSafeInteger(config.maxClaimsPerTask) || config.maxClaimsPerTask < 1
+    || !Number.isSafeInteger(config.maxStatementCharactersPerTask)
+    || config.maxStatementCharactersPerTask < MAX_WIKI_CLAIM_STATEMENT_CHARACTERS) {
+    throw new Error('memory-knowledge: Wiki cross-module flow task budgets are invalid')
+  }
+  const primaryFlowClaimIds = new Set(tasks.filter(task => task.kind === 'analysis')
+    .flatMap(task => task.businessQuestions?.state === 'completed'
+      ? task.businessQuestions.findings
+        .filter(finding => finding.key === 'primary-flows' && finding.outcome === 'evidence')
+        .flatMap(finding => finding.claimIds.map(String))
+      : []))
+  const coverageById = new Map(coverage.map(item => [String(item.id), item]))
+  const candidates = claims.filter(claim => primaryFlowClaimIds.has(String(claim.id))
+      && claim.kind !== 'unknown' && !['proposed', 'rejected', 'stale'].includes(claim.status))
+    .sort((left, right) => compareText(String(left.id), String(right.id)))
+  const batches: WikiClaim[][] = []
+  let batch: WikiClaim[] = []
+  let statementCharacters = 0
+  for (const claim of candidates) {
+    for (const coverageIdValue of claim.coverageIds) {
+      if (!coverageById.has(String(coverageIdValue))) {
+        throw new Error('memory-knowledge: Wiki flow Claim references missing Coverage')
+      }
+    }
+    if (batch.length > 0 && (batch.length === config.maxClaimsPerTask
+      || statementCharacters + claim.statement.length > config.maxStatementCharactersPerTask)) {
+      batches.push(batch)
+      batch = []
+      statementCharacters = 0
+    }
+    batch.push(claim)
+    statementCharacters += claim.statement.length
+  }
+  if (batch.length > 0) batches.push(batch)
+  const planned = batches.map((assigned, index): WikiShardTask => {
+    const shardKey = `flow_${index.toString().padStart(6, '0')}`
+    return {
+      id: wikiTaskId(runId, shardKey),
+      runId,
+      kind: 'flow',
+      shardKey,
+      coverageIds: [...new Set(assigned.flatMap(claim => claim.coverageIds.map(String)))]
+        .sort(compareText).map(WikiCoverageId),
+      claimIds: assigned.map(claim => claim.id),
+      candidatePairs: [],
+      materialRanges: [],
+      modelInputAudit: createPendingWikiModelInputAudit(),
+      crossModuleFlow: createPendingWikiCrossModuleFlow(),
+      status: 'planned',
+      attemptCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+  })
+  return {
+    tasks: planned,
+    summary: {
+      rulesVersion: WIKI_CROSS_MODULE_FLOW_RULES_VERSION,
+      state: planned.length === 0 ? 'complete' : 'running',
+      candidateClaimCount: candidates.length,
+      taskCount: planned.length,
+      completedTaskCount: 0,
+      flowCount: 0,
+      stepCount: 0,
+      unresolvedClaimCount: 0,
     },
   }
 }
@@ -2885,6 +3167,7 @@ export function createPlannedWikiRun(
     tasks: summarizeWikiTasks(tasks),
     fileSynthesis: createUnplannedWikiFileSynthesisSummary(),
     consistency: createUnplannedWikiConsistencySummary(),
+    crossModuleFlows: createUnplannedWikiCrossModuleFlowSummary(),
     pageGeneration: createUnplannedWikiPageGenerationSummary(),
     rootPageIds: [],
     blockingReasons,

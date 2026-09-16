@@ -111,12 +111,22 @@ const wikiRunValue: MemoryUiWikiRunSummary = {
       levelLimitFileCount: 0,
       limits: null,
     },
-    consistency: {
+  consistency: {
     rulesVersion: 1,
     planned: false,
     candidatePairCount: 0,
     candidatePairsComplete: false,
     omittedCandidatePairCount: null,
+  },
+  crossModuleFlows: {
+    rulesVersion: 1,
+    state: 'unplanned',
+    candidateClaimCount: 0,
+    taskCount: 0,
+    completedTaskCount: 0,
+    flowCount: 0,
+    stepCount: 0,
+    unresolvedClaimCount: 0,
   },
   pageGeneration: { rulesVersion: 1, planned: false, claimCount: 0, taskCount: 0 },
   businessQuestions: {
@@ -1450,6 +1460,43 @@ describe('MemoryKnowledgeSection', () => {
 
     expect(await screen.findByText('全局候选 7 对，召回有遗漏且数量未知')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: zh.wikiConsistencyNextTask }))
+    await waitFor(() => { expect(runWikiTask).toHaveBeenCalledWith({ workspaceId: 'workspace-one', dataEgressConfirmed: true }) })
+  })
+
+  it('shows bounded cross-module flow progress and a distinct next-task action', async () => {
+    const flowRun: MemoryUiWikiRunSummary = {
+      ...wikiRunValue,
+      status: 'synthesizing',
+      tasks: { ...wikiRunValue.tasks, taskCount: 5, planned: 1, succeeded: 4 },
+      consistency: {
+        rulesVersion: 1,
+        planned: true,
+        candidatePairCount: 0,
+        candidatePairsComplete: true,
+        omittedCandidatePairCount: 0,
+      },
+      crossModuleFlows: {
+        rulesVersion: 1,
+        state: 'running',
+        candidateClaimCount: 6,
+        taskCount: 2,
+        completedTaskCount: 1,
+        flowCount: 1,
+        stepCount: 3,
+        unresolvedClaimCount: 1,
+      },
+    }
+    const overview = vi.fn<MemoryKnowledgeSectionInjected['overview']>(async request => request.workspaceId === undefined
+      ? overviewValue
+      : { ...overviewValue, selectedWorkspaceId: 'workspace-one', wikiRuns: [flowRun] })
+    const runWikiTask = vi.fn<MemoryKnowledgeSectionInjected['runWikiTask']>(async () => ({ run: flowRun }))
+    render(<MemoryKnowledgeSection {...props({ overview, runWikiTask }).value} />)
+    await screen.findByText('候选标题')
+    openKnowledgeAnalysis()
+    await waitFor(() => { expect(overview).toHaveBeenCalledWith({ domain: 'knowledge', workspaceId: 'workspace-one' }) })
+
+    expect(await screen.findByText('跨模块流程 1/2 批，候选 6 条 Claim，已形成 1 个流程/3 个步骤，1 条未解')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: zh.wikiFlowNextTask }))
     await waitFor(() => { expect(runWikiTask).toHaveBeenCalledWith({ workspaceId: 'workspace-one', dataEgressConfirmed: true }) })
   })
 

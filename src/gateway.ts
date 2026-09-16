@@ -750,6 +750,7 @@ export class MemoryKnowledgeGateway extends TypertRemoteService {
       tasks: { ...run.tasks },
       fileSynthesis: { ...run.fileSynthesis },
       consistency: { ...run.consistency },
+      crossModuleFlows: { ...run.crossModuleFlows },
       pageGeneration: { ...run.pageGeneration },
       businessQuestions: {
         state: run.businessQuestions.state,

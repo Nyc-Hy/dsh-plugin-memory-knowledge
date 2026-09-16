@@ -79,6 +79,7 @@ describe('Wiki 材料读取持久账本', () => {
     })
     await test.engine.saveWikiRunSnapshot(completed, test.started.snapshotHash)
     await expect(test.engine.increaseWikiMaterialReadBudget(test.key, 200, guard)).rejects.toThrow('尚未完成')
+    await expect(test.engine.increaseWikiMaterialReadBudget(test.key, 200)).rejects.toThrow('尚未完成')
     expect(await test.engine.getWikiMaterialReadBudget(test.key)).toEqual(budget)
   })
 
@@ -152,6 +153,7 @@ describe('Wiki 材料读取持久账本', () => {
     await expect(test.engine.reserveWikiMaterialRead({ ...test.request, agentSessionId: SessionId('session-wrong') }))
       .rejects.toThrow('不属于当前运行')
     await expect(test.engine.reserveWikiMaterialRead({ ...test.request, byteSize: -1 })).rejects.toThrow()
+    await expect(test.engine.reserveWikiMaterialRead({ ...test.request, byteSize: 0 })).rejects.toThrow()
     await test.engine.saveWikiRunSnapshot(failWikiTask(test.started, test.key.taskId, 'failed'), test.started.snapshotHash)
     await expect(test.engine.reserveWikiMaterialRead(test.request)).rejects.toThrow('不属于当前运行')
     expect(await test.engine.getWikiMaterialReadBudget(test.key)).toBeUndefined()
@@ -172,7 +174,7 @@ describe('Wiki 材料读取持久账本', () => {
     expect(await upgraded.getWikiMaterialReadBudget(test.key)).toBeUndefined()
     expect(await upgraded.reserveWikiMaterialRead(test.request)).toMatchObject({ startedAtAttempt: 1, reservationCount: 1 })
     const database = new DatabaseSync(test.databasePath, { readOnly: true })
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 27 })
     database.close()
   })
 

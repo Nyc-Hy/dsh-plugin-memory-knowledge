@@ -40,7 +40,7 @@ export interface ListWikiMaterialBudgetsRequest {
 export interface WikiTaskMaterialBudget {
   budget: WikiMaterialReadBudget
   budgetHash: string
-  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'page'
+  kind: 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'flow' | 'page'
   status: 'planned' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 }
 
@@ -88,7 +88,7 @@ const budgetSchema = z.object({
 })
 
 const taskOwnerSchema = z.object({
-  kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'page']),
+  kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'flow', 'page']),
   status: z.enum(['planned', 'running', 'succeeded', 'failed', 'cancelled']),
   agentSessionId: z.string().optional(),
   attemptCount: count,
@@ -150,7 +150,7 @@ function writeBudget(database: DatabaseSync, budget: WikiMaterialReadBudget): Wi
  * @returns 预扣后的账本；blockedReadBytes 非空时禁止读取和提交事实。
  */
 export function reserveWikiMaterialBudget(database: DatabaseSync, request: ReserveWikiMaterialRead): WikiMaterialReadBudget {
-  count.parse(request.byteSize)
+  count.refine(value => value > 0).parse(request.byteSize)
   count.refine(value => value > 0).parse(request.limitBytes)
   const row = database.prepare('SELECT payload_json FROM wiki_tasks WHERE run_id = ? AND id = ?')
     .get(request.runId, request.taskId) as { payload_json: string } | undefined
@@ -187,15 +187,15 @@ export function increaseWikiMaterialBudget(
   if (guard !== undefined) assertProjectRun(database, key.runId, guard.projectRoot)
   const budget = readWikiMaterialBudget(database, key)
   if (budget === undefined) throw new Error('Wiki 任务尚无材料读取账本')
+  const row = database.prepare('SELECT payload_json FROM wiki_tasks WHERE run_id = ? AND id = ?')
+    .get(key.runId, key.taskId) as { payload_json: string } | undefined
+  if (row === undefined) throw new Error('Wiki 预算任务不存在')
+  const task = taskOwnerSchema.parse(JSON.parse(row.payload_json))
+  if (task.kind === 'page' || !['running', 'failed', 'cancelled'].includes(task.status)) {
+    throw new Error('只有尚未完成的材料读取任务可以在页面扩额')
+  }
   if (guard !== undefined) {
     if (wikiMaterialBudgetHash(budget) !== guard.expectedBudgetHash) throw new WikiMaterialBudgetConflictError()
-    const row = database.prepare('SELECT payload_json FROM wiki_tasks WHERE run_id = ? AND id = ?')
-      .get(key.runId, key.taskId) as { payload_json: string } | undefined
-    if (row === undefined) throw new Error('Wiki 预算任务不存在')
-    const task = taskOwnerSchema.parse(JSON.parse(row.payload_json))
-    if (task.kind === 'page' || !['running', 'failed', 'cancelled'].includes(task.status)) {
-      throw new Error('只有尚未完成的材料读取任务可以在页面扩额')
-    }
   }
   if (limitBytes <= budget.limitBytes || limitBytes - budget.reservedBytes < (budget.blockedReadBytes ?? 0)) {
     throw new Error('新额度必须高于当前额度，并容纳被拒绝的读取；消耗不会清零')

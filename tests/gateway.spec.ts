@@ -63,7 +63,7 @@ const localMemory: LocalMemoryEntry = {
 }
 
 const wikiRun: WikiRun = {
-  schemaVersion: 10,
+  schemaVersion: 11,
   id: 'wrun_11111111-1111-4111-8111-111111111111' as never,
   projectRoot: projectPath,
   status: 'planned',
@@ -135,6 +135,16 @@ const wikiRun: WikiRun = {
     candidatePairCount: 0,
     candidatePairsComplete: false,
     omittedCandidatePairCount: null,
+  },
+  crossModuleFlows: {
+    rulesVersion: 1,
+    state: 'unplanned',
+    candidateClaimCount: 0,
+    taskCount: 0,
+    completedTaskCount: 0,
+    flowCount: 0,
+    stepCount: 0,
+    unresolvedClaimCount: 0,
   },
   pageGeneration: { rulesVersion: 1, planned: false, claimCount: 0, taskCount: 0 },
   rootPageIds: [],

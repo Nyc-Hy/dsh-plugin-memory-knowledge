@@ -122,6 +122,7 @@ import {
   createUnassessedWikiFileSynthesisSummary,
   createUnsupportedWikiModelInputAudit,
   createUnsupportedWikiBusinessQuestions,
+  createUnsupportedWikiCrossModuleFlowSummary,
   createUnplannedWikiPageGenerationSummary,
   createWikiConsistencyTasks,
   createWikiPageTasks,
@@ -141,7 +142,7 @@ import {
 } from './wiki-model.js'
 
 /** Current local candidate/search database schema. */
-export const MEMORY_DATABASE_SCHEMA_VERSION = 26
+export const MEMORY_DATABASE_SCHEMA_VERSION = 27
 
 const SOURCE_RECORD_REBUILD_SCHEMA_VERSION = 3
 const SOURCE_RECORD_SCHEMA_VERSION = 4
@@ -166,6 +167,7 @@ const PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION = 22
 const PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION = 23
 const WIKI_RUNTIME_V8_SCHEMA_VERSION = 24
 const WIKI_RUNTIME_V9_SCHEMA_VERSION = 25
+const WIKI_RUNTIME_V10_SCHEMA_VERSION = 26
 
 /** SQLite application id protecting unrelated files from memory schema writes. */
 export const MEMORY_DATABASE_APPLICATION_ID = 0x44534d4b
@@ -465,6 +467,7 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION,
         WIKI_RUNTIME_V8_SCHEMA_VERSION,
         WIKI_RUNTIME_V9_SCHEMA_VERSION,
+        WIKI_RUNTIME_V10_SCHEMA_VERSION,
         MEMORY_DATABASE_SCHEMA_VERSION,
       ].includes(version)) {
       throw new Error(
@@ -510,6 +513,9 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
       }
       if (applicationId === MEMORY_DATABASE_APPLICATION_ID && version === WIKI_RUNTIME_V9_SCHEMA_VERSION) {
         migrateWikiRuntimeV9(database)
+      }
+      if (applicationId === MEMORY_DATABASE_APPLICATION_ID && version === WIKI_RUNTIME_V10_SCHEMA_VERSION) {
+        migrateWikiRuntimeV10(database)
       }
       if (applicationId === MEMORY_DATABASE_APPLICATION_ID
         && version >= SOURCE_RECORD_REBUILD_SCHEMA_VERSION
@@ -1105,6 +1111,7 @@ function migrateWikiRuntimeV1(database: DatabaseSync): void {
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
+    migratedRun['crossModuleFlows'] = createUnsupportedWikiCrossModuleFlowSummary()
     migratedRun['consistency'] = createUnplannedWikiConsistencySummary()
     migratedRun['pageGeneration'] = createUnplannedWikiPageGenerationSummary()
     const migrated = finalizeWikiRunSnapshot({
@@ -1182,6 +1189,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     migratedRun['consistency'] = createUnplannedWikiConsistencySummary()
     migratedRun['pageGeneration'] = createUnplannedWikiPageGenerationSummary()
+    migratedRun['crossModuleFlows'] = createUnsupportedWikiCrossModuleFlowSummary()
     migratedRun['rootPageIds'] = []
     if (migratedRun['status'] === 'verifying') {
       if (!tasks.every(task => task.status === 'succeeded')) {
@@ -1217,6 +1225,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
     migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
+    migratedRun['crossModuleFlows'] = createUnsupportedWikiCrossModuleFlowSummary()
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1290,6 +1299,7 @@ function migrateWikiRuntimeV3(database: DatabaseSync): void {
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     migratedRun['consistency'] = createUnplannedWikiConsistencySummary()
     migratedRun['pageGeneration'] = createUnplannedWikiPageGenerationSummary()
+    migratedRun['crossModuleFlows'] = createUnsupportedWikiCrossModuleFlowSummary()
     if (migratedRun['status'] === 'needs-review' || migratedRun['status'] === 'complete') {
       const verification = tasks.filter(task => task.kind === 'verification')
       if (verification.some(task => task.status !== 'succeeded')) {
@@ -1553,6 +1563,7 @@ function migrateWikiRuntimeV7(database: DatabaseSync): void {
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: { ...rawRun, schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+        crossModuleFlows: createUnsupportedWikiCrossModuleFlowSummary(),
         fileSynthesis: createUnassessedWikiFileSynthesisSummary(tasks),
         materialExposure: summarizeWikiMaterialExposure(tasks),
         businessQuestions: summarizeWikiBusinessQuestions(tasks) } as unknown as WikiRun,
@@ -1599,6 +1610,7 @@ function migrateWikiRuntimeV8(database: DatabaseSync): void {
         schemaVersion: WIKI_RUN_SCHEMA_VERSION,
         materialExposure: summarizeWikiMaterialExposure(tasks),
         businessQuestions: summarizeWikiBusinessQuestions(tasks),
+        crossModuleFlows: createUnsupportedWikiCrossModuleFlowSummary(),
       } as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
       tasks,
@@ -1638,6 +1650,7 @@ function migrateWikiRuntimeV9(database: DatabaseSync): void {
         ...rawRun,
         schemaVersion: WIKI_RUN_SCHEMA_VERSION,
         businessQuestions: summarizeWikiBusinessQuestions(tasks),
+        crossModuleFlows: createUnsupportedWikiCrossModuleFlowSummary(),
       } as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
       tasks,
@@ -1647,6 +1660,34 @@ function migrateWikiRuntimeV9(database: DatabaseSync): void {
       pages: wikiChildPayloads(database, 'wiki_pages', runId) as WikiRunSnapshot['pages'],
     })
     for (const task of migrated.tasks) updateTask.run(JSON.stringify(task), runId, task.id)
+    updateRun.run(migrated.snapshotHash, JSON.stringify(migrated.run), runId)
+  }
+}
+
+function migrateWikiRuntimeV10(database: DatabaseSync): void {
+  const rows = database.prepare('SELECT id, payload_json FROM wiki_runs ORDER BY id ASC')
+    .all() as Array<{ id: string; payload_json: string }>
+  const updateRun = database.prepare('UPDATE wiki_runs SET snapshot_hash = ?, payload_json = ? WHERE id = ?')
+  for (const row of rows) {
+    const rawRun = parseJson('Wiki v10 run row', row.payload_json)
+    if (!isRecord(rawRun) || rawRun['schemaVersion'] !== 10 || rawRun['id'] !== row.id) {
+      throw new Error('memory-knowledge: Wiki v10 run cannot be migrated')
+    }
+    const runId = WikiRunId(row.id)
+    const migrated = finalizeWikiRunSnapshot({
+      schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+      run: {
+        ...rawRun,
+        schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+        crossModuleFlows: createUnsupportedWikiCrossModuleFlowSummary(),
+      } as unknown as WikiRun,
+      coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
+      tasks: wikiChildPayloads(database, 'wiki_tasks', runId) as WikiRunSnapshot['tasks'],
+      citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
+      claims: wikiChildPayloads(database, 'wiki_claims', runId) as WikiRunSnapshot['claims'],
+      conflicts: wikiChildPayloads(database, 'wiki_conflicts', runId) as WikiRunSnapshot['conflicts'],
+      pages: wikiChildPayloads(database, 'wiki_pages', runId) as WikiRunSnapshot['pages'],
+    })
     updateRun.run(migrated.snapshotHash, JSON.stringify(migrated.run), runId)
   }
 }

@@ -232,6 +232,16 @@ const wikiCompletionReportSchema = z.object({
   eligibleForActivation: z.boolean(),
   checks: z.array(wikiCompletionCheckSchema).length(10),
 }).strict()
+const wikiCrossModuleFlowSummarySchema = z.object({
+  rulesVersion: z.number().int().nonnegative(),
+  state: z.enum(['unplanned', 'running', 'complete', 'unsupported']),
+  candidateClaimCount: z.number().int().nonnegative(),
+  taskCount: z.number().int().nonnegative(),
+  completedTaskCount: z.number().int().nonnegative(),
+  flowCount: z.number().int().nonnegative(),
+  stepCount: z.number().int().nonnegative(),
+  unresolvedClaimCount: z.number().int().nonnegative(),
+}).strict()
 const wikiRunSummarySchema = z.object({
   id: idSchema,
   status: z.enum([
@@ -253,6 +263,7 @@ const wikiRunSummarySchema = z.object({
   tasks: wikiTaskSummarySchema,
   fileSynthesis: wikiFileSynthesisSummarySchema,
   consistency: wikiConsistencySummarySchema,
+  crossModuleFlows: wikiCrossModuleFlowSummarySchema,
   pageGeneration: wikiPageGenerationSummarySchema,
   businessQuestions: wikiBusinessQuestionSummarySchema,
   completion: wikiCompletionReportSchema,
@@ -309,7 +320,7 @@ const wikiBudgetsResultSchema = z.object({
   runId: budgetRunIdSchema,
   items: z.array(z.object({
     taskId: budgetTaskIdSchema,
-    kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'page']),
+    kind: z.enum(['analysis', 'file-synthesis', 'verification', 'consistency', 'flow', 'page']),
     status: z.enum(['planned', 'running', 'succeeded', 'failed', 'cancelled']),
     limitBytes: budgetCount.positive(), reservedBytes: budgetCount, reservationCount: budgetCount,
     blockedReadBytes: budgetCount.nullable(), startedAt: z.string().datetime(),

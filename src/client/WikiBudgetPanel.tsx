@@ -27,7 +27,8 @@ type EditState = { taskId: string; input: string; confirmedLimit?: number }
 
 const KIND_KEYS = {
   analysis: 'wikiBudgetAnalysis', 'file-synthesis': 'wikiBudgetFileSynthesis',
-  verification: 'wikiBudgetVerification', consistency: 'wikiBudgetConsistency', page: 'wikiBudgetPage',
+  verification: 'wikiBudgetVerification', consistency: 'wikiBudgetConsistency',
+  flow: 'wikiBudgetFlow', page: 'wikiBudgetPage',
 } as const satisfies Record<MemoryUiWikiBudget['kind'], MemoryKnowledgeLocaleKey>
 const STATUS_KEYS = {
   planned: 'wikiRunPlanned', running: 'wikiBudgetRunning', succeeded: 'wikiRunComplete',

@@ -1178,7 +1178,8 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
     && ['running', 'unassessed'].includes(analysisRun.fileSynthesis.status)
     && analysisRun.fileSynthesis.taskCount > 0
     && analysisRun.tasks.succeeded < analysisRun.tasks.taskCount
-  const wikiPagePhase = analysisRun?.status === 'synthesizing'
+  const wikiFlowPhase = analysisRun?.status === 'synthesizing' && analysisRun.crossModuleFlows.state === 'running'
+  const wikiPagePhase = analysisRun?.status === 'synthesizing' && analysisRun.pageGeneration.planned
 
   return (
     <section className="mk-section" aria-busy={state.status === 'loading'}>
@@ -1442,6 +1443,8 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
                   {busy === 'wiki-task'
                     ? t(wikiPagePhase
                         ? 'wikiPageRunning'
+                        : wikiFlowPhase
+                          ? 'wikiFlowRunning'
                         : wikiConsistencyPhase
                           ? 'wikiConsistencyRunning'
                           : wikiFileSynthesisPhase
@@ -1449,6 +1452,8 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
                             : analysisRun?.status === 'verifying' ? 'wikiVerificationRunning' : 'wikiTaskRunning')
                     : t(wikiPagePhase
                         ? 'wikiPageNextTask'
+                        : wikiFlowPhase
+                          ? 'wikiFlowNextTask'
                         : wikiConsistencyPhase
                           ? 'wikiConsistencyNextTask'
                           : wikiFileSynthesisPhase
@@ -1504,6 +1509,20 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
                               ? 'wikiConsistencyComplete'
                               : 'wikiConsistencyIncomplete', {
                             count: run.consistency.candidatePairCount,
+                          })}</span>
+                          <span>{t(run.crossModuleFlows.state === 'unplanned'
+                            ? 'wikiCrossModuleFlowsPending'
+                            : run.crossModuleFlows.state === 'unsupported'
+                              ? 'wikiCrossModuleFlowsUnsupported'
+                              : run.crossModuleFlows.state === 'running'
+                                ? 'wikiCrossModuleFlowsProgress'
+                                : 'wikiCrossModuleFlowsComplete', {
+                            completed: run.crossModuleFlows.completedTaskCount,
+                            tasks: run.crossModuleFlows.taskCount,
+                            claims: run.crossModuleFlows.candidateClaimCount,
+                            flows: run.crossModuleFlows.flowCount,
+                            steps: run.crossModuleFlows.stepCount,
+                            unresolved: run.crossModuleFlows.unresolvedClaimCount,
                           })}</span>
                           <span>{t(run.pageGeneration.planned ? 'wikiPagePlan' : 'wikiPagePlanPending', {
                             claims: run.pageGeneration.claimCount,

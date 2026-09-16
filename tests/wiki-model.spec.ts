@@ -16,6 +16,7 @@ import {
   finalizeWikiRunSnapshot,
   MAX_WIKI_CLAIM_STATEMENT_CHARACTERS,
   parseWikiRunSnapshot,
+  summarizeWikiCrossModuleFlows,
   summarizeWikiCoverage,
   WIKI_BUSINESS_QUESTION_DEFINITIONS,
   type WikiBusinessQuestionFinding,
@@ -26,6 +27,7 @@ import {
   failWikiTask,
   startWikiTask,
   succeedWikiFileSynthesisTask,
+  succeedWikiCrossModuleFlowTask,
   succeedWikiPageTask,
   succeedWikiTask,
   succeedWikiVerificationTask,
@@ -135,6 +137,19 @@ function completePageTasks(snapshot: WikiRunSnapshot): WikiRunSnapshot {
 }
 
 describe('LLM Wiki runtime model', () => {
+  it('rejects disappearance of an already planned cross-module flow task set', () => {
+    expect(() => summarizeWikiCrossModuleFlows([], {
+      rulesVersion: 1,
+      state: 'running',
+      candidateClaimCount: 2,
+      taskCount: 1,
+      completedTaskCount: 0,
+      flowCount: 0,
+      stepCount: 0,
+      unresolvedClaimCount: 0,
+    })).toThrow('running Wiki cross-module flow tasks cannot disappear')
+  })
+
   it('requires every analysis task to durably settle the complete business-question set', () => {
     const planned = createPlannedWikiRun({
       projectRoot: '/workspace/questions',
@@ -183,6 +198,82 @@ describe('LLM Wiki runtime model', () => {
       citations: [],
       claims: [],
     } as never, '2026-08-27T00:02:00.000Z')).toThrow('must submit business-question findings')
+  })
+
+  it('synthesizes primary-flow Claims into an evidence-bound cross-module flow before Pages', () => {
+    let current = createPlannedWikiRun({
+      projectRoot: '/workspace/cross-module-flow',
+      catalogHash,
+      catalogComplete: true,
+      catalogOmittedItemCount: 0,
+      entries: [catalogEntry('api/entry.ts'), catalogEntry('domain/order.ts')],
+      now: timestamp,
+    }, [], { maxItems: 1, maxBytes: 100 })
+    const claimIds = [createWikiClaimId(), createWikiClaimId()]
+    for (const [index, plannedTask] of current.tasks.filter(task => task.kind === 'analysis').entries()) {
+      const task = current.tasks.find(value => value.id === plannedTask.id)!
+      const coverage = current.coverage.find(item => item.id === task.coverageIds[0])!
+      const citationId = createWikiCitationId()
+      current = succeedWikiTask(startWikiTask(
+        current, task.id, SessionId(`session-flow-analysis-${index}`), `2026-08-27T00:0${index + 1}:00.000Z`,
+      ), task.id, {
+        coverage: [{ coverageId: coverage.id, status: 'analyzed', contentHash }],
+        citations: [{
+          id: citationId,
+          runId: current.run.id,
+          role: 'supports',
+          provenance: { kind: 'document', sourceId, path: coverage.path, contentHash },
+        }],
+        claims: [{
+          id: claimIds[index]!,
+          runId: current.run.id,
+          kind: 'assertion',
+          status: 'proposed',
+          statement: index === 0 ? 'HTTP 入口接收订单请求。' : '领域层保存订单状态。',
+          citationIds: [citationId],
+          coverageIds: [coverage.id],
+          sourceClaimIds: [],
+        }],
+        businessQuestions: testBusinessQuestionFindings([claimIds[index]!], 'primary-flows'),
+      }, `2026-08-27T00:0${index + 1}:30.000Z`)
+    }
+    const verification = current.tasks.find(task => task.kind === 'verification')!
+    current = succeedWikiVerificationTask(startWikiTask(
+      current, verification.id, SessionId('session-flow-verification'), '2026-08-27T00:04:00.000Z',
+    ), verification.id, {
+      decisions: claimIds.map(claimId => ({ claimId, status: 'verified' as const })),
+      citations: [],
+      conflicts: [],
+    }, '2026-08-27T00:05:00.000Z')
+
+    const flowTask = current.tasks.find(task => task.kind === 'flow')!
+    expect(current.run.crossModuleFlows).toMatchObject({ state: 'running', candidateClaimCount: 2, taskCount: 1 })
+    current = succeedWikiCrossModuleFlowTask(startWikiTask(
+      current, flowTask.id, SessionId('session-flow-synthesis'), '2026-08-27T00:06:00.000Z',
+    ), flowTask.id, {
+      flows: [{
+        title: '订单创建',
+        steps: [
+          { title: '接收请求', claimIds: [claimIds[0]!] },
+          { title: '保存状态', claimIds: [claimIds[1]!] },
+        ],
+      }],
+      unresolvedClaimIds: [],
+    }, '2026-08-27T00:07:00.000Z')
+
+    expect(current.run.crossModuleFlows).toEqual({
+      rulesVersion: 1,
+      state: 'complete',
+      candidateClaimCount: 2,
+      taskCount: 1,
+      completedTaskCount: 1,
+      flowCount: 1,
+      stepCount: 2,
+      unresolvedClaimCount: 0,
+    })
+    expect(current.tasks.some(task => task.kind === 'page' && task.status === 'planned')).toBe(true)
+    expect(assessWikiCompletion(current.run).checks.find(check => check.id === 'cross-module-flows'))
+      .toEqual({ id: 'cross-module-flows', state: 'pass', issueCount: 0 })
   })
 
   it('plans every catalog file without treating language as a support gate', () => {
@@ -1106,7 +1197,7 @@ describe('LLM Wiki runtime model', () => {
         { id: 'pages', state: 'pass', issueCount: 0 },
         { id: 'material-exposure', state: 'fail', issueCount: 1 },
         { id: 'business-questions', state: 'pass', issueCount: 0 },
-        { id: 'cross-module-flows', state: 'unsupported', issueCount: 1 },
+        { id: 'cross-module-flows', state: 'pass', issueCount: 0 },
       ],
     })
   })
