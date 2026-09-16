@@ -1509,6 +1509,13 @@ export function MemoryKnowledgeSection(props: MemoryKnowledgeSectionProps): Reac
                             claims: run.pageGeneration.claimCount,
                             tasks: run.pageGeneration.taskCount,
                           })}</span>
+                          <span>{t('wikiBusinessQuestionProgress', {
+                            completed: run.businessQuestions.completedTaskCount,
+                            tasks: run.businessQuestions.analysisTaskCount,
+                            questions: run.businessQuestions.requiredQuestionCount,
+                            unknown: run.businessQuestions.unknownFindingCount,
+                            notApplicable: run.businessQuestions.notApplicableFindingCount,
+                          })}</span>
                           <span>{formatBytes(run.coverage.totalBytes)}</span>
                           <span>{t('wikiRootPages', { count: run.rootPageCount })}</span>
                           <span>{t('updatedAt', { time: formatTime(run.updatedAt) })}</span>

@@ -27,10 +27,64 @@ import type { ProvenanceRef } from './model.js'
 import { assertProvenanceRefs, PORTABLE_RELATIVE_PATH_PATTERN } from './schema.js'
 
 /** Current local LLM Wiki runtime format. */
-export const WIKI_RUN_SCHEMA_VERSION = 9 as const
+export const WIKI_RUN_SCHEMA_VERSION = 10 as const
 
 /** Version of the final Provider-request material exposure audit. */
 export const WIKI_MODEL_INPUT_AUDIT_RULES_VERSION = 1
+
+/** Version of the required project-understanding questions answered by analysis tasks. */
+export const WIKI_BUSINESS_QUESTION_RULES_VERSION = 1
+
+/** Stable business questions that every new analysis task must explicitly settle. */
+export const WIKI_BUSINESS_QUESTION_DEFINITIONS = [
+  { key: 'purpose-and-terms', question: '项目解决什么问题，核心业务概念和术语是什么？' },
+  { key: 'entrypoints', question: '系统的用户、Agent、网络、命令行和后台入口在哪里？' },
+  { key: 'entities-and-state', question: '核心实体、状态及其生命周期如何定义？' },
+  { key: 'rules-and-constraints', question: '哪些业务规则、约束和不变式决定系统行为？' },
+  { key: 'primary-flows', question: '主要业务流程如何在模块之间推进？' },
+  { key: 'exception-and-recovery', question: '异常、重试、取消和恢复路径如何工作？' },
+  { key: 'persistence-and-integrations', question: '持久化、外部集成及其一致性要求是什么？' },
+  { key: 'configuration-and-runtime', question: '哪些配置、环境和运行时组装会改变系统行为？' },
+  { key: 'implementation-and-tests', question: '关键行为由哪些代码与测试实现和证明？' },
+] as const
+
+/** Stable key for one required project-understanding question. */
+export type WikiBusinessQuestionKey = typeof WIKI_BUSINESS_QUESTION_DEFINITIONS[number]['key']
+
+/** One evidence-bound answer contributed by an analysis task. */
+export interface WikiBusinessQuestionFinding {
+  key: WikiBusinessQuestionKey
+  outcome: 'evidence' | 'unknown' | 'not-applicable'
+  claimIds: WikiClaimId[]
+  reason?: string
+}
+
+/** Durable business-question state owned by one analysis task. */
+export type WikiBusinessQuestionTaskState = {
+  rulesVersion: 0
+  state: 'unsupported'
+  findings: []
+} | {
+  rulesVersion: typeof WIKI_BUSINESS_QUESTION_RULES_VERSION
+  state: 'pending'
+  findings: []
+} | {
+  rulesVersion: typeof WIKI_BUSINESS_QUESTION_RULES_VERSION
+  state: 'completed'
+  findings: WikiBusinessQuestionFinding[]
+}
+
+/** Exact project-question progress retained in the Wiki run header. */
+export interface WikiBusinessQuestionSummary {
+  rulesVersion: typeof WIKI_BUSINESS_QUESTION_RULES_VERSION
+  state: 'pending' | 'complete' | 'unsupported'
+  requiredQuestionCount: number
+  analysisTaskCount: number
+  completedTaskCount: number
+  evidenceFindingCount: number
+  unknownFindingCount: number
+  notApplicableFindingCount: number
+}
 
 /** Language-neutral metadata budgets for natural Wiki analysis shards. */
 export interface WikiShardConfig {
@@ -290,6 +344,7 @@ export interface WikiShardTask {
   materialRanges: WikiMaterialRange[]
   fileSynthesis?: WikiFileSynthesisTaskState
   modelInputAudit: WikiModelInputAudit
+  businessQuestions?: WikiBusinessQuestionTaskState
   status: WikiTaskStatus
   attemptCount: number
   agentSessionId?: SessionId
@@ -334,6 +389,7 @@ export interface WikiRun {
   coverage: WikiCoverageSummary
   materialRanges: WikiMaterialRangeSummary
   materialExposure: WikiMaterialExposureSummary
+  businessQuestions: WikiBusinessQuestionSummary
   tasks: WikiTaskSummary
   fileSynthesis: WikiFileSynthesisSummary
   consistency: WikiConsistencySummary
@@ -655,6 +711,44 @@ const modelInputAuditSchema = z.discriminatedUnion('state', [
   }).strict(),
 ])
 
+const businessQuestionKeySchema = z.enum(WIKI_BUSINESS_QUESTION_DEFINITIONS
+  .map(value => value.key) as [WikiBusinessQuestionKey, ...WikiBusinessQuestionKey[]])
+
+const businessQuestionFindingSchema = z.object({
+  key: businessQuestionKeySchema,
+  outcome: z.enum(['evidence', 'unknown', 'not-applicable']),
+  claimIds: uniqueStrings(claimId),
+  reason: nonEmpty.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.outcome === 'evidence' && value.claimIds.length === 0) {
+    context.addIssue({ code: 'custom', message: 'an evidence-backed Wiki question requires a Claim' })
+  }
+  if (value.outcome !== 'evidence' && value.reason === undefined) {
+    context.addIssue({ code: 'custom', message: 'unknown or not-applicable Wiki questions require a reason' })
+  }
+})
+
+const businessQuestionTaskStateSchema = z.discriminatedUnion('state', [
+  z.object({ rulesVersion: z.literal(0), state: z.literal('unsupported'), findings: z.tuple([]) }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_BUSINESS_QUESTION_RULES_VERSION),
+    state: z.literal('pending'),
+    findings: z.tuple([]),
+  }).strict(),
+  z.object({
+    rulesVersion: z.literal(WIKI_BUSINESS_QUESTION_RULES_VERSION),
+    state: z.literal('completed'),
+    findings: z.array(businessQuestionFindingSchema),
+  }).strict().superRefine((value, context) => {
+    const keys = new Set(value.findings.map(finding => finding.key))
+    if (value.findings.length !== WIKI_BUSINESS_QUESTION_DEFINITIONS.length
+      || keys.size !== WIKI_BUSINESS_QUESTION_DEFINITIONS.length
+      || WIKI_BUSINESS_QUESTION_DEFINITIONS.some(definition => !keys.has(definition.key))) {
+      context.addIssue({ code: 'custom', message: 'a completed analysis task must settle every required Wiki question exactly once' })
+    }
+  }),
+])
+
 const taskSchema = z.object({
   id: taskId,
   runId,
@@ -676,6 +770,7 @@ const taskSchema = z.object({
     outcome: z.enum(['complete', 'no-reduction', 'level-limit']).optional(),
   }).strict().optional(),
   modelInputAudit: modelInputAuditSchema,
+  businessQuestions: businessQuestionTaskStateSchema.optional(),
   status: z.enum(['planned', 'running', 'succeeded', 'failed', 'cancelled']),
   attemptCount: positiveOrZeroInteger,
   agentSessionId: sessionId.optional(),
@@ -685,6 +780,12 @@ const taskSchema = z.object({
   completedAt: isoDate.optional(),
   failure: nonEmpty.optional(),
 }).strict().superRefine((value, context) => {
+  if ((value.kind === 'analysis') !== (value.businessQuestions !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'only Wiki analysis tasks must retain business-question state' })
+  }
+  if (value.businessQuestions?.state === 'completed' && value.status !== 'succeeded') {
+    context.addIssue({ code: 'custom', message: 'only a succeeded Wiki analysis task may retain completed questions' })
+  }
   if ((value.kind === 'file-synthesis') !== (value.fileSynthesis !== undefined)) {
     context.addIssue({ code: 'custom', message: '只有文件综合任务必须记录层级信息' })
   }
@@ -756,6 +857,31 @@ const materialExposureSummarySchema = z.object({
   }
 })
 
+const businessQuestionSummarySchema = z.object({
+  rulesVersion: z.literal(WIKI_BUSINESS_QUESTION_RULES_VERSION),
+  state: z.enum(['pending', 'complete', 'unsupported']),
+  requiredQuestionCount: z.literal(WIKI_BUSINESS_QUESTION_DEFINITIONS.length),
+  analysisTaskCount: positiveOrZeroInteger,
+  completedTaskCount: positiveOrZeroInteger,
+  evidenceFindingCount: positiveOrZeroInteger,
+  unknownFindingCount: positiveOrZeroInteger,
+  notApplicableFindingCount: positiveOrZeroInteger,
+}).strict().superRefine((value, context) => {
+  const findingCount = value.evidenceFindingCount + value.unknownFindingCount + value.notApplicableFindingCount
+  if (value.completedTaskCount > value.analysisTaskCount
+    || findingCount !== value.completedTaskCount * value.requiredQuestionCount) {
+    context.addIssue({ code: 'custom', message: 'Wiki business-question totals are inconsistent' })
+  }
+  if (value.state === 'complete' && (value.analysisTaskCount === 0
+    || value.completedTaskCount !== value.analysisTaskCount)) {
+    context.addIssue({ code: 'custom', message: 'complete Wiki business questions require every analysis task' })
+  }
+  if (value.state === 'pending' && (value.analysisTaskCount === 0
+    || value.completedTaskCount >= value.analysisTaskCount)) {
+    context.addIssue({ code: 'custom', message: 'pending Wiki business questions require unfinished analysis tasks' })
+  }
+})
+
 const consistencySummarySchema = z.object({
   rulesVersion: positiveOrZeroInteger,
   planned: z.boolean(),
@@ -810,6 +936,7 @@ const runSchema = z.object({
   coverage: coverageSummarySchema,
   materialRanges: materialRangeSummarySchema,
   materialExposure: materialExposureSummarySchema,
+  businessQuestions: businessQuestionSummarySchema,
   tasks: taskSummarySchema,
   fileSynthesis: fileSynthesisSummarySchema,
   consistency: consistencySummarySchema,
@@ -1057,6 +1184,10 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
   if (JSON.stringify(snapshot.run.materialExposure) !== JSON.stringify(expectedMaterialExposure)) {
     throw new Error('memory-knowledge: Wiki material exposure summary is inconsistent')
   }
+  const expectedBusinessQuestions = summarizeWikiBusinessQuestions(snapshot.tasks)
+  if (JSON.stringify(snapshot.run.businessQuestions) !== JSON.stringify(expectedBusinessQuestions)) {
+    throw new Error('memory-knowledge: Wiki business-question summary is inconsistent')
+  }
 
   const coverageById = new Map(snapshot.coverage.map(value => [String(value.id), value]))
   const claimById = new Map(snapshot.claims.map(value => [String(value.id), value]))
@@ -1086,6 +1217,22 @@ function assertSnapshotGraph(snapshot: Omit<WikiRunSnapshot, 'snapshotHash'>): v
     const taskCoverage = task.coverageIds.map(id => coverageById.get(String(id)))
     if (taskCoverage.some(item => item === undefined)) {
       throw new Error('memory-knowledge: Wiki task references missing project coverage')
+    }
+    if (task.businessQuestions?.state === 'completed') {
+      const taskCoverageKeys = new Set(task.coverageIds.map(String))
+      for (const finding of task.businessQuestions.findings) {
+        const claims = finding.claimIds.map(id => claimById.get(String(id)))
+        if (claims.some(claim => claim === undefined)
+          || claims.some(claim => claim!.coverageIds.some(coverageId => !taskCoverageKeys.has(String(coverageId))))) {
+          throw new Error('memory-knowledge: Wiki question finding references a missing or out-of-task Claim')
+        }
+        if (finding.outcome === 'evidence' && claims.some(claim => claim!.kind === 'unknown')) {
+          throw new Error('memory-knowledge: evidence-backed Wiki questions cannot rely on unknown Claims')
+        }
+        if (finding.outcome === 'unknown' && claims.some(claim => claim!.kind !== 'unknown')) {
+          throw new Error('memory-knowledge: unknown Wiki questions may only reference unknown Claims')
+        }
+      }
     }
     if (task.kind === 'analysis' && task.materialRanges.length === 0
       && taskCoverage.some(item => item?.shardKey !== task.shardKey)) {
@@ -1653,6 +1800,41 @@ export function createUnsupportedWikiModelInputAudit(): WikiModelInputAudit {
   return { rulesVersion: 0, state: 'unsupported', material: [] }
 }
 
+/** Create question state for a newly planned analysis task. */
+export function createPendingWikiBusinessQuestions(): WikiBusinessQuestionTaskState {
+  return { rulesVersion: WIKI_BUSINESS_QUESTION_RULES_VERSION, state: 'pending', findings: [] }
+}
+
+/** Create the explicit legacy state for analysis that predates required project questions. */
+export function createUnsupportedWikiBusinessQuestions(): WikiBusinessQuestionTaskState {
+  return { rulesVersion: 0, state: 'unsupported', findings: [] }
+}
+
+/** Recompute exact project-question progress from durable analysis task findings. */
+export function summarizeWikiBusinessQuestions(tasks: readonly WikiShardTask[]): WikiBusinessQuestionSummary {
+  const analysisTasks = tasks.filter(task => task.kind === 'analysis')
+  const completed = analysisTasks.filter(task => task.businessQuestions?.state === 'completed')
+  const findings = completed.flatMap(task => task.businessQuestions?.state === 'completed'
+    ? task.businessQuestions.findings
+    : [])
+  const state: WikiBusinessQuestionSummary['state'] = analysisTasks.length === 0
+    || analysisTasks.some(task => task.businessQuestions?.state === 'unsupported')
+    ? 'unsupported'
+    : completed.length === analysisTasks.length
+      ? 'complete'
+      : 'pending'
+  return {
+    rulesVersion: WIKI_BUSINESS_QUESTION_RULES_VERSION,
+    state,
+    requiredQuestionCount: WIKI_BUSINESS_QUESTION_DEFINITIONS.length,
+    analysisTaskCount: analysisTasks.length,
+    completedTaskCount: completed.length,
+    evidenceFindingCount: findings.filter(finding => finding.outcome === 'evidence').length,
+    unknownFindingCount: findings.filter(finding => finding.outcome === 'unknown').length,
+    notApplicableFindingCount: findings.filter(finding => finding.outcome === 'not-applicable').length,
+  }
+}
+
 /** Recompute activation totals for every task whose result depends on raw project material. */
 export function summarizeWikiMaterialExposure(tasks: readonly WikiShardTask[]): WikiMaterialExposureSummary {
   const required = tasks.filter(task => task.kind !== 'page')
@@ -1736,6 +1918,19 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
           state: 'fail',
           issueCount: Math.max(1, run.materialExposure.pendingTaskCount),
         }
+  const businessQuestions: WikiCompletionCheck = run.businessQuestions.state === 'unsupported'
+    ? {
+        id: 'business-questions',
+        state: 'unsupported',
+        issueCount: Math.max(1, run.businessQuestions.analysisTaskCount - run.businessQuestions.completedTaskCount),
+      }
+    : run.businessQuestions.state === 'complete'
+      ? { id: 'business-questions', state: 'pass', issueCount: 0 }
+      : {
+          id: 'business-questions',
+          state: 'fail',
+          issueCount: Math.max(1, run.businessQuestions.analysisTaskCount - run.businessQuestions.completedTaskCount),
+        }
   const checks: WikiCompletionCheck[] = [{
     id: 'catalog',
     state: catalogComplete ? 'pass' : 'fail',
@@ -1760,11 +1955,7 @@ export function assessWikiCompletion(run: WikiRun): WikiCompletionReport {
     id: 'pages',
     state: pagesComplete ? 'pass' : 'fail',
     issueCount: pagesComplete ? 0 : 1,
-  }, materialExposure, {
-    id: 'business-questions',
-    state: 'unsupported',
-    issueCount: 1,
-  }, {
+  }, materialExposure, businessQuestions, {
     id: 'cross-module-flows',
     state: 'unsupported',
     issueCount: 1,
@@ -2648,6 +2839,7 @@ export function createPlannedWikiRun(
         candidatePairs: [],
         materialRanges: [],
         modelInputAudit: createPendingWikiModelInputAudit(),
+        businessQuestions: createPendingWikiBusinessQuestions(),
         status: 'planned',
         attemptCount: 0,
         createdAt: timestamp,
@@ -2668,6 +2860,7 @@ export function createPlannedWikiRun(
           candidatePairs: [],
           materialRanges: [range],
           modelInputAudit: createPendingWikiModelInputAudit(),
+          businessQuestions: createPendingWikiBusinessQuestions(),
           status: 'planned',
           attemptCount: 0,
           createdAt: timestamp,
@@ -2688,6 +2881,7 @@ export function createPlannedWikiRun(
     coverage: summarizeWikiCoverage(coverage),
     materialRanges: summarizeWikiMaterialRanges(tasks),
     materialExposure: summarizeWikiMaterialExposure(tasks),
+    businessQuestions: summarizeWikiBusinessQuestions(tasks),
     tasks: summarizeWikiTasks(tasks),
     fileSynthesis: createUnplannedWikiFileSynthesisSummary(),
     consistency: createUnplannedWikiConsistencySummary(),
@@ -2705,6 +2899,7 @@ export function createPlannedWikiRun(
     run.tasks = summarizeWikiTasks(tasks)
     run.materialRanges = summarizeWikiMaterialRanges(tasks)
     run.materialExposure = summarizeWikiMaterialExposure(tasks)
+    run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
     run.status = tasks.length > 0 ? 'verifying' : 'planned'
   }
   return finalizeWikiRunSnapshot({

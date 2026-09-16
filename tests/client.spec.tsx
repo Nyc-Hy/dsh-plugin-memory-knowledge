@@ -119,6 +119,15 @@ const wikiRunValue: MemoryUiWikiRunSummary = {
     omittedCandidatePairCount: null,
   },
   pageGeneration: { rulesVersion: 1, planned: false, claimCount: 0, taskCount: 0 },
+  businessQuestions: {
+    state: 'pending',
+    requiredQuestionCount: 9,
+    analysisTaskCount: 1,
+    completedTaskCount: 0,
+    evidenceFindingCount: 0,
+    unknownFindingCount: 0,
+    notApplicableFindingCount: 0,
+  },
   completion: {
     eligibleForActivation: false,
     checks: [{ id: 'catalog', state: 'pass', issueCount: 0 },

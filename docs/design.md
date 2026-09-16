@@ -648,7 +648,7 @@ Git diff 增量 Source inventory 纵切包括：
 3. 目录清单完整性、遗漏数、逐状态文件数和总字节是持久化不变量；清单有遗漏时运行固定 `blocked`，不会把预算截断伪装成全项目理解；
 4. assertion 与 inference 必须引用已分析 Catalog 项中的具体文件或文档，Source id、path 与 revision 必须相符；`git-commit` 和 Session 不能单独支持事实，inference 不能标成 verified，unknown 只能保持 uncertain，conflicted Claim 必须关联开放冲突；
 5. Wiki Page 不保存独立摘要正文，只引用 Claim；eligible Claim 必须在任务树中恰好出现一次，页面状态由 Host 从直接 Claim 与子页面聚合，页面树拒绝环、多父节点、缺失节点和孤儿；
-6. SQLite schema v25 按 Run 分表保存 coverage、tasks、citations、claims、conflicts 和 pages，候选对与召回原因保存在 durable consistency Task 中，材料区间保存在 analysis Task 中；保存时事务原子替换，读取时重建跨表关系、Task、区间汇总、文件级综合来源链、模型输入审计、候选指纹、Page 覆盖和页面树并复核 snapshot hash；Wiki runtime 格式独立为 schema v9；runtime v8 历史任务的模型输入审计明确标记为不支持，不从旧成功状态反推最终 Provider 请求包含了原文；
+6. SQLite schema v26 按 Run 分表保存 coverage、tasks、citations、claims、conflicts 和 pages，候选对与召回原因保存在 durable consistency Task 中，材料区间和项目问题结论保存在 analysis Task 中；保存时事务原子替换，读取时重建跨表关系、Task、区间汇总、问题汇总、文件级综合来源链、模型输入审计、候选指纹、Page 覆盖和页面树并复核 snapshot hash；Wiki runtime 格式独立为 schema v10；runtime v9 历史任务的项目问题明确标记为不支持，不从旧 Claim 反推答案；
 7. 每个自然分片映射为确定性 durable Task，保存状态、尝试次数、Agent Session id 与失败原因；同 Catalog 的失败或取消 Task 可以恢复和重试；
 8. 超过区间目标的 Git 文本在规划时顺序流式校验 Git object id、完整 SHA-256、fatal UTF-8 与 NUL，并写入用户私有的 content-addressed 派生缓存；核心区间严格覆盖完整对象，每侧上下文只用于理解边缘。每个区间拥有确定性 `rangeId` 和独立 Task，全部区间成功前文件 Coverage 不得标为 analyzed；
 9. `WikiGeneration` Provider 使用 public `@deepseek-ai/dsh-agent` 创建或恢复 Session，屏蔽全局工具，只注册当前阶段的上下文、材料读取和结构化提交工具；只有完整读取并复核实际字节数、Git object、SHA-256 和持久化区间身份的材料才能支持 assertion/inference，模型未提交时 Task 进入可审计 failed；
@@ -658,6 +658,7 @@ Git diff 增量 Source inventory 纵切包括：
 13. 全局一致性完成后，Host 按 Coverage 区域、Claim 数和 statement 字符预算生成 durable Page Task；Page Agent 只接收任务内 Claim 状态、正文与有界路径，不读取材料，也不能提交自由事实。模型只给出任务局部 slug、标题、Claim 引用与子页面关系，Host 负责验证恰好一次覆盖、生成稳定 id、聚合状态和唯一合成根；
 14. `MemoryKnowledgeEngine.planWikiRun()` 提供底层持久化入口，`MemoryKnowledge.planWikiProject()` 接入 Git tree Catalog，严格 Host RPC 与设置页可以建立计划并执行下一个 analysis、file-synthesis、verification、consistency 或 page Task，并可显式加载有界活动 Page 树；新 Run 只在证据 identity 未变且支持 Citation 仍匹配时复用 verified 叶级 assertion，综合 Claim、Page 和 ranged Citation 仍重新生成。
 15. 最新 Run 完成 Page 阶段后，`generate` 只把已验证 assertion、单一 Git source/commit 且 Coverage 哈希匹配的 Page 变成 `suggestedBy=wiki` Knowledge Card candidate；候选继续走 review/revision CAS/promote，不绕过人工审核。Wiki Page 使用当前 Page id 派生稳定 Card id，保证同一快照重复生成幂等。
+16. 每个新 analysis Task 都必须提交固定九类项目问题：目的与术语、入口、实体与状态、规则与约束、主流程、异常与恢复、持久化与集成、配置与运行时、实现与测试。`evidence` 结论只能引用同一提交的非 unknown Claim，所有非 unknown Claim 至少支持一个问题；`unknown` 与 `not-applicable` 必须保存原因。Host 从 durable Task 计算 Run 汇总和完成检查，模型不能自行标记项目问题阶段完成。
 
 无正文读取的 Git Project Catalog 纵切包括：
 

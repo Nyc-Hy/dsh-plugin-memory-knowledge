@@ -28,6 +28,7 @@ import {
 } from '../src/wiki-model.js'
 import { startWikiTask, succeedWikiPageTask, succeedWikiTask, succeedWikiVerificationTask } from '../src/wiki-task.js'
 import { makeTempDirectory } from './helpers.js'
+import { testBusinessQuestionFindings } from './wiki-business-question-fixture.js'
 
 const timestamp = '2026-09-10T00:00:00.000Z'
 const sourceId = KnowledgeSourceId('src_11111111-1111-4111-8111-111111111111')
@@ -103,6 +104,7 @@ function completeWikiSnapshot(projectRoot: string): WikiRunSnapshot {
       coverageIds: [current.coverage[0]!.id],
       sourceClaimIds: [],
     }],
+    businessQuestions: testBusinessQuestionFindings([claimId]),
   }, '2026-09-10T00:02:00.000Z')
   const verificationTask = current.tasks.find(task => task.kind === 'verification')!
   current = succeedWikiVerificationTask(startWikiTask(
@@ -440,7 +442,7 @@ describe('project knowledge versions', () => {
       content: '迁移后新增的人工说明。',
     })
     const migrated = new DatabaseSync(databasePath)
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 })
+    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
     expect(migrated.prepare(`
       SELECT COUNT(*) AS count FROM knowledge_effective_versions WHERE generated_version_id = ?
     `).get(generatedVersion.id)).toEqual({ count: 2 })

@@ -203,6 +203,15 @@ const wikiPageGenerationSummarySchema = z.object({
   claimCount: z.number().int().nonnegative(),
   taskCount: z.number().int().nonnegative(),
 }).strict()
+const wikiBusinessQuestionSummarySchema = z.object({
+  state: z.enum(['pending', 'complete', 'unsupported']),
+  requiredQuestionCount: z.number().int().nonnegative(),
+  analysisTaskCount: z.number().int().nonnegative(),
+  completedTaskCount: z.number().int().nonnegative(),
+  evidenceFindingCount: z.number().int().nonnegative(),
+  unknownFindingCount: z.number().int().nonnegative(),
+  notApplicableFindingCount: z.number().int().nonnegative(),
+}).strict()
 const wikiCompletionCheckSchema = z.object({
   id: z.enum([
     'catalog',
@@ -245,6 +254,7 @@ const wikiRunSummarySchema = z.object({
   fileSynthesis: wikiFileSynthesisSummarySchema,
   consistency: wikiConsistencySummarySchema,
   pageGeneration: wikiPageGenerationSummarySchema,
+  businessQuestions: wikiBusinessQuestionSummarySchema,
   completion: wikiCompletionReportSchema,
   rootPageCount: z.number().int().nonnegative(),
   blockingReasons: z.array(z.string().max(2_000)).max(20),

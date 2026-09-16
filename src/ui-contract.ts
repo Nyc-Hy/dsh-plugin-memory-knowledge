@@ -175,6 +175,17 @@ export interface MemoryUiWikiPageGenerationSummary {
   taskCount: number
 }
 
+/** Bounded progress for the fixed project-understanding question set. */
+export interface MemoryUiWikiBusinessQuestionSummary {
+  state: 'pending' | 'complete' | 'unsupported'
+  requiredQuestionCount: number
+  analysisTaskCount: number
+  completedTaskCount: number
+  evidenceFindingCount: number
+  unknownFindingCount: number
+  notApplicableFindingCount: number
+}
+
 /** Browser-safe state of one required project-knowledge activation check. */
 export interface MemoryUiWikiCompletionCheck {
   id: 'catalog' | 'coverage' | 'analysis' | 'file-synthesis' | 'verification' | 'consistency' | 'pages'
@@ -202,6 +213,7 @@ export interface MemoryUiWikiRunSummary {
   fileSynthesis: MemoryUiWikiFileSynthesisSummary
   consistency: MemoryUiWikiConsistencySummary
   pageGeneration: MemoryUiWikiPageGenerationSummary
+  businessQuestions: MemoryUiWikiBusinessQuestionSummary
   completion: MemoryUiWikiCompletionReport
   rootPageCount: number
   blockingReasons: string[]

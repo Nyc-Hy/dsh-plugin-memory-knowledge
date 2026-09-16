@@ -11,6 +11,7 @@ import type { WikiProjectCatalog } from '../src/wiki-catalog.js'
 import type { WikiRunSnapshot } from '../src/wiki-model.js'
 import { startWikiTask, succeedWikiPageTask, succeedWikiTask, succeedWikiVerificationTask } from '../src/wiki-task.js'
 import { fileContentHash, initializeGitProject, makeTempProject } from './helpers.js'
+import { testBusinessQuestionFindings } from './wiki-business-question-fixture.js'
 
 const sourceId = KnowledgeSourceId('src_11111111-1111-4111-8111-111111111111')
 const runId = WikiRunId('wrun_11111111-1111-4111-8111-111111111111')
@@ -244,6 +245,7 @@ describe('Wiki Page Knowledge Card candidates', () => {
           coverageIds: [coverage.id],
           sourceClaimIds: [],
         }],
+        businessQuestions: testBusinessQuestionFindings([claimId]),
       }, '2026-09-07T00:02:00.000Z')
       await engine.saveWikiRunSnapshot(analyzed, planned.run.snapshotHash)
       const verification = analyzed.tasks.find(task => task.kind === 'verification')!

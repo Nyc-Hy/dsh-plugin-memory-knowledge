@@ -21,11 +21,28 @@ import { MemoryKnowledgeEngine } from '../src/engine.js'
 import type { WikiMaterialBudgetKey, ReserveWikiMaterialRead } from '../src/wiki-material-budget.js'
 import type { SearchWikiCatalogRequest, ListWikiCatalogRangesRequest } from '../src/wiki-catalog-query.js'
 import { KnowledgeSourceId } from '../src/ids.js'
-import { activeWikiClaims, createPlannedWikiRun, type WikiMaterialRange, type WikiRunSnapshot } from '../src/wiki-model.js'
+import {
+  activeWikiClaims,
+  createPlannedWikiRun,
+  WIKI_BUSINESS_QUESTION_DEFINITIONS,
+  type WikiMaterialRange,
+  type WikiRunSnapshot,
+} from '../src/wiki-model.js'
 import { makeTempProject } from './helpers.js'
 
 const contexts: Context[] = []
 const stores: MemoryKnowledgeEngine[] = []
+
+function businessQuestionArgs(claimCount: number): Array<{
+  key: typeof WIKI_BUSINESS_QUESTION_DEFINITIONS[number]['key']
+  outcome: 'evidence' | 'not-applicable'
+  claimIndexes: number[]
+  reason?: string
+}> {
+  return WIKI_BUSINESS_QUESTION_DEFINITIONS.map((definition, index) => claimCount > 0 && index === 0
+    ? { key: definition.key, outcome: 'evidence', claimIndexes: Array.from({ length: claimCount }, (_, claim) => claim) }
+    : { key: definition.key, outcome: 'not-applicable', claimIndexes: [], reason: '当前测试材料不覆盖该项目问题。' })
+}
 
 function appendCompletedTurn(session: Session, message: UserMessage): void {
   session.append('turn/start', { turn: 1 })
@@ -312,6 +329,7 @@ describe('durable Wiki Agent provider', () => {
           coverage: [{ coverageId, outcome: 'analyzed' }],
           citations: [],
           claims: [],
+          questions: businessQuestionArgs(0),
         },
         agent,
         callId: ToolCallId('audited-task-submit'),
@@ -344,6 +362,13 @@ describe('durable Wiki Agent provider', () => {
       pendingTaskCount: 0,
       unsupportedTaskCount: 0,
     })
+    expect(result.run.businessQuestions).toMatchObject({
+      state: 'complete',
+      requiredQuestionCount: 9,
+      analysisTaskCount: 1,
+      completedTaskCount: 1,
+      notApplicableFindingCount: 9,
+    })
   })
 
   it('rejects model-input evidence bound to another submit tool call', async () => {
@@ -358,7 +383,9 @@ describe('durable Wiki Agent provider', () => {
       })
       const reused = await agent.ctx.tools.execute({
         name: 'wiki_task_submit',
-        arguments: { coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [] },
+        arguments: {
+          coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [], questions: businessQuestionArgs(0),
+        },
         agent,
         callId: ToolCallId('current-task-submit'),
         signal: new AbortController().signal,
@@ -420,7 +447,7 @@ describe('durable Wiki Agent provider', () => {
         expect(denied.isError).toBe(true)
       }
       const submission = await execute('wiki_task_submit', {
-        coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [],
+        coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [], questions: businessQuestionArgs(0),
       })
       expect(submission.isError).toBe(prompts === 1)
       appendCompletedTurn(agent.session, message)
@@ -451,7 +478,9 @@ describe('durable Wiki Agent provider', () => {
         name, arguments: args, agent, callId: ToolCallId(`resume-${prompts}-${name}`), signal: new AbortController().signal,
       })
       const coverageId = planned.coverage[0]!.id
-      const submission = { coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [] }
+      const submission = {
+        coverage: [{ coverageId, outcome: 'analyzed' }], citations: [], claims: [], questions: businessQuestionArgs(0),
+      }
       if (prompts === 2) expect((await execute('wiki_task_submit', submission)).isError).toBe(true)
       const read = await execute('wiki_material_read', { coverageId })
       expect(read.isError).toBe(prompts > readsAllowed)
@@ -548,6 +577,7 @@ describe('durable Wiki Agent provider', () => {
             citationKeys: ['range-source'],
             coverageIds: [coverageId],
           }],
+          questions: businessQuestionArgs(1),
         },
         agent,
       })
@@ -609,6 +639,7 @@ describe('durable Wiki Agent provider', () => {
               citationKeys: [`source-${range.ordinal}`],
               coverageIds: [coverageId],
             })),
+            questions: businessQuestionArgs(claimsPerRange),
           },
           agent,
         })
@@ -809,6 +840,7 @@ describe('durable Wiki Agent provider', () => {
             citationKeys: ['readme'],
             coverageIds: [coverageId],
           }],
+          questions: businessQuestionArgs(1),
         },
         agent,
       })
@@ -907,6 +939,7 @@ describe('durable Wiki Agent provider', () => {
               citationKeys: ['material'],
               coverageIds: [coverageId],
             }],
+            questions: businessQuestionArgs(2),
           },
           agent,
         })
@@ -999,6 +1032,7 @@ describe('durable Wiki Agent provider', () => {
               citationKeys: ['support'],
               coverageIds: [coverageId],
             }],
+            questions: businessQuestionArgs(1),
           },
           agent,
         })

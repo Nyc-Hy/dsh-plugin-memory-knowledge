@@ -40,8 +40,11 @@ import {
   DEFAULT_WIKI_PAGE_CONFIG,
   DEFAULT_WIKI_VERIFICATION_BATCH_CLAIMS,
   MAX_WIKI_CLAIM_STATEMENT_CHARACTERS,
+  WIKI_BUSINESS_QUESTION_DEFINITIONS,
   WIKI_MODEL_INPUT_AUDIT_RULES_VERSION,
   type WikiCitation,
+  type WikiBusinessQuestionFinding,
+  type WikiBusinessQuestionKey,
   type WikiClaim,
   type WikiConflict,
   type WikiConsistencyConfig,
@@ -302,6 +305,13 @@ interface SubmitClaimArg {
   coverageIds: string[]
 }
 
+interface SubmitQuestionArg {
+  key: WikiBusinessQuestionKey
+  outcome: 'evidence' | 'unknown' | 'not-applicable'
+  claimIndexes: number[]
+  reason?: string
+}
+
 interface VerifyDecisionArg {
   claimId: string
   outcome: 'verified' | 'uncertain' | 'rejected' | 'conflicted'
@@ -348,6 +358,8 @@ const WIKI_AGENT_PROMPT = [
   '区间正文含有有界上下文，但事实范围仍受该区间约束；不得根据一个区间声称整文件没有其他定义、配置或例外。',
   '只有 wiki_material_read 返回完整对象身份和已验证区间身份后才能支持 assertion 或 inference。每条 assertion/inference 至少需要一个 supports Citation，并且 Citation 必须指向本任务 Coverage 与区间。',
   '无法从材料确认的结论必须写成 unknown；超预算或非 UTF-8 材料只能按工具返回原因 deferred，不能猜测其内容。',
+  `同时必须逐项回答以下 ${WIKI_BUSINESS_QUESTION_DEFINITIONS.length} 个项目问题：${WIKI_BUSINESS_QUESTION_DEFINITIONS.map((value, index) => `${index + 1}. ${value.key}: ${value.question}`).join(' ')}`,
+  '每个问题只能是 evidence、unknown 或 not-applicable。evidence 必须用 claimIndexes 引用本次提交的非 unknown Claim；unknown 只能引用 unknown Claim 并说明原因；not-applicable 必须说明为何不适用。每条非 unknown Claim 至少支持一个问题。',
   '不要按编程语言决定是否支持；未知扩展名与已知语言使用同一证据规则。',
   '最后必须且只能成功调用一次 wiki_task_submit。普通自然语言回答不会完成任务。',
 ].join('\n')
@@ -671,6 +683,7 @@ function buildSubmission(
   coverageArgs: SubmitCoverageArg[],
   citationArgs: SubmitCitationArg[],
   claimArgs: SubmitClaimArg[],
+  questionArgs: SubmitQuestionArg[],
   state: MaterialReadState,
 ): Parameters<typeof succeedWikiTask>[2] {
   const coverageById = new Map(taskCoverage(snapshot, task).map(item => [String(item.id), item]))
@@ -755,7 +768,21 @@ function buildSubmission(
       sourceClaimIds: [],
     }
   })
-  return { coverage: settledCoverage, citations: [...citationByKey.values()], claims }
+  const businessQuestions: WikiBusinessQuestionFinding[] = questionArgs.map(value => {
+    const claimIndexes = [...new Set(value.claimIndexes)]
+    if (claimIndexes.length !== value.claimIndexes.length
+      || claimIndexes.some(index => !Number.isSafeInteger(index) || index < 0 || index >= claims.length)) {
+      throw new Error('Wiki question claimIndexes must be unique valid indexes into this submission')
+    }
+    const reason = value.reason?.trim()
+    return {
+      key: value.key,
+      outcome: value.outcome,
+      claimIds: claimIndexes.map(index => claims[index]!.id),
+      ...(reason === undefined || reason.length === 0 ? {} : { reason }),
+    }
+  })
+  return { coverage: settledCoverage, citations: [...citationByKey.values()], claims, businessQuestions }
 }
 
 function buildFileSynthesisSubmission(
@@ -1168,6 +1195,24 @@ function installTaskTools(
           },
         },
       },
+      questions: {
+        type: 'array',
+        required: true,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            key: {
+              type: 'string',
+              required: true,
+              enum: WIKI_BUSINESS_QUESTION_DEFINITIONS.map(value => value.key),
+            },
+            outcome: { type: 'string', required: true, enum: ['evidence', 'unknown', 'not-applicable'] },
+            claimIndexes: { type: 'array', required: true, items: { type: 'integer' } },
+            reason: { type: 'string' },
+          },
+        },
+      },
     },
     output: {
       schema: {
@@ -1178,11 +1223,12 @@ function installTaskTools(
           analyzed: { type: 'integer', required: true },
           deferred: { type: 'integer', required: true },
           claims: { type: 'integer', required: true },
+          questions: { type: 'integer', required: true },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Wiki 分片已提交：analyzed ${value.analyzed}，deferred ${value.deferred}，claims ${value.claims}。`,
+        text: `Wiki 分片已提交：analyzed ${value.analyzed}，deferred ${value.deferred}，claims ${value.claims}，questions ${value.questions}。`,
       }],
     },
     timeoutMs: config.toolTimeoutMs,
@@ -1197,6 +1243,7 @@ function installTaskTools(
         args.coverage as SubmitCoverageArg[],
         args.citations as SubmitCitationArg[],
         args.claims as SubmitClaimArg[],
+        args.questions as SubmitQuestionArg[],
         state,
       )
       const modelInputAudit = modelInputAuditForSubmit(agent, String(exec.callId), state)
@@ -1217,6 +1264,7 @@ function installTaskTools(
         analyzed: submission.coverage.filter(value => value.status === 'analyzed').length,
         deferred: submission.coverage.filter(value => value.status === 'deferred').length,
         claims: submission.claims.length,
+        questions: submission.businessQuestions?.length ?? 0,
       }
     },
     presentCall: () => ({ card: 'generic', title: '提交 Wiki 分片结果', kind: 'other', rawInput: String(taskId) }),

@@ -2,6 +2,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { createWikiCitationId, createWikiClaimId, KnowledgeSourceId } from '../src/ids.js'
 import { createPlannedWikiRun, type WikiFileSynthesisConfig, type WikiRunSnapshot, type WikiShardTask } from '../src/wiki-model.js'
 import { startWikiTask, succeedWikiFileSynthesisTask, succeedWikiTask, type WikiFileSynthesisSubmission } from '../src/wiki-task.js'
+import { testBusinessQuestionFindings } from './wiki-business-question-fixture.js'
 
 export const synthesisTime = '2026-09-03T00:00:00.000Z'
 
@@ -32,6 +33,7 @@ export function synthesisFixture(
   for (const task of [...current.tasks]) {
     const range = task.materialRanges[0]!
     const citationId = createWikiCitationId()
+    const claimId = createWikiClaimId()
     current = succeedWikiTask(startSynthesisTask(current, task), task.id, {
       coverage: [{ coverageId: task.coverageIds[0]!, rangeId: range.id, status: 'analyzed', contentHash }],
       citations: [{
@@ -40,10 +42,11 @@ export function synthesisFixture(
           startLine: range.startLine, endLine: range.endLine },
       }],
       claims: [{
-        id: createWikiClaimId(), runId: current.run.id, kind: 'assertion', status: 'proposed',
+        id: claimId, runId: current.run.id, kind: 'assertion', status: 'proposed',
         statement: `区间 ${range.ordinal} 明确记录处理步骤。`, citationIds: [citationId],
         coverageIds: [...task.coverageIds], sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings([claimId]),
     }, synthesisTime, undefined, undefined, undefined, config)
   }
   return current

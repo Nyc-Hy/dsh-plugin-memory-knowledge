@@ -17,6 +17,8 @@ import {
   MAX_WIKI_CLAIM_STATEMENT_CHARACTERS,
   parseWikiRunSnapshot,
   summarizeWikiCoverage,
+  WIKI_BUSINESS_QUESTION_DEFINITIONS,
+  type WikiBusinessQuestionFinding,
   type WikiCatalogEntry,
   type WikiRunSnapshot,
 } from '../src/wiki-model.js'
@@ -28,6 +30,7 @@ import {
   succeedWikiTask,
   succeedWikiVerificationTask,
 } from '../src/wiki-task.js'
+import { testBusinessQuestionFindings } from './wiki-business-question-fixture.js'
 
 const sourceId = KnowledgeSourceId('src_11111111-1111-4111-8111-111111111111')
 const contentHash = `sha256:${'1'.repeat(64)}`
@@ -43,6 +46,15 @@ function catalogEntry(path: string, language?: string): WikiCatalogEntry {
     revision: { kind: 'content-hash', contentHash },
     ...(language === undefined ? {} : { language }),
   }
+}
+
+function notApplicableBusinessQuestions(): WikiBusinessQuestionFinding[] {
+  return WIKI_BUSINESS_QUESTION_DEFINITIONS.map(definition => ({
+    key: definition.key,
+    outcome: 'not-applicable',
+    claimIds: [],
+    reason: '本分片未包含该问题的可引用证据。',
+  }))
 }
 
 function rangedCatalogEntry(): WikiCatalogEntry {
@@ -123,6 +135,56 @@ function completePageTasks(snapshot: WikiRunSnapshot): WikiRunSnapshot {
 }
 
 describe('LLM Wiki runtime model', () => {
+  it('requires every analysis task to durably settle the complete business-question set', () => {
+    const planned = createPlannedWikiRun({
+      projectRoot: '/workspace/questions',
+      catalogHash,
+      catalogComplete: true,
+      catalogOmittedItemCount: 0,
+      entries: [catalogEntry('src/questions.unknown')],
+      now: timestamp,
+    })
+    const task = planned.tasks[0]!
+    const started = startWikiTask(planned, task.id, SessionId('session-questions'), '2026-08-27T00:01:00.000Z')
+    const completed = succeedWikiTask(started, task.id, {
+      coverage: [{ coverageId: planned.coverage[0]!.id, status: 'analyzed', contentHash }],
+      citations: [],
+      claims: [],
+      businessQuestions: notApplicableBusinessQuestions(),
+    }, '2026-08-27T00:02:00.000Z')
+
+    expect(completed.tasks[0]!.businessQuestions).toMatchObject({
+      rulesVersion: 1,
+      state: 'completed',
+      findings: expect.arrayContaining([expect.objectContaining({ key: 'primary-flows' })]),
+    })
+    expect(completed.run.businessQuestions).toEqual({
+      rulesVersion: 1,
+      state: 'complete',
+      requiredQuestionCount: 9,
+      analysisTaskCount: 1,
+      completedTaskCount: 1,
+      evidenceFindingCount: 0,
+      unknownFindingCount: 0,
+      notApplicableFindingCount: 9,
+    })
+    expect(assessWikiCompletion(completed.run).checks.find(check => check.id === 'business-questions'))
+      .toEqual({ id: 'business-questions', state: 'pass', issueCount: 0 })
+
+    expect(() => succeedWikiTask(started, task.id, {
+      coverage: [{ coverageId: planned.coverage[0]!.id, status: 'analyzed', contentHash }],
+      citations: [],
+      claims: [],
+      businessQuestions: notApplicableBusinessQuestions().slice(1),
+    }, '2026-08-27T00:02:00.000Z')).toThrow('every required business question')
+
+    expect(() => succeedWikiTask(started, task.id, {
+      coverage: [{ coverageId: planned.coverage[0]!.id, status: 'analyzed', contentHash }],
+      citations: [],
+      claims: [],
+    } as never, '2026-08-27T00:02:00.000Z')).toThrow('must submit business-question findings')
+  })
+
   it('plans every catalog file without treating language as a support gate', () => {
     const entries = [
       catalogEntry('cmd/main.go', 'Go'),
@@ -210,6 +272,7 @@ describe('LLM Wiki runtime model', () => {
         coverageIds: [planned.coverage[0]!.id],
         sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings([claimId]),
     }, '2026-08-27T00:02:00.000Z')
     const verification = analyzed.tasks.find(task => task.kind === 'verification')!
     const previous = succeedWikiVerificationTask(startWikiTask(
@@ -444,6 +507,7 @@ describe('LLM Wiki runtime model', () => {
         coverageIds: [coverage.id],
         sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings([claimId]),
     }, '2026-08-27T00:02:00.000Z')
 
     expect(first.run).toMatchObject({
@@ -468,6 +532,7 @@ describe('LLM Wiki runtime model', () => {
       }],
       citations: [],
       claims: [],
+      businessQuestions: testBusinessQuestionFindings(),
     }, '2026-08-27T00:04:00.000Z')
 
     expect(complete.run).toMatchObject({
@@ -539,6 +604,7 @@ describe('LLM Wiki runtime model', () => {
           coverageIds: [coverage.id],
           sourceClaimIds: [],
         }],
+        businessQuestions: testBusinessQuestionFindings([sourceClaimIds[index]!]),
       }, `2026-08-27T00:2${index}:00.000Z`)
     }
 
@@ -673,6 +739,7 @@ describe('LLM Wiki runtime model', () => {
           coverageIds: [coverage.id],
           sourceClaimIds: [],
         }],
+        businessQuestions: testBusinessQuestionFindings([claimIds[index]!]),
       }, `2026-08-27T01:1${index}:00.000Z`, 1)
     }
     const verificationTasks = current.tasks.filter(task => task.kind === 'verification')
@@ -913,6 +980,7 @@ describe('LLM Wiki runtime model', () => {
         coverageIds: [planned.coverage[0]!.id],
         sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings([claimId]),
     }, '2026-08-27T00:04:00.000Z')
 
     expect(completed.run).toMatchObject({ status: 'verifying', coverage: { analyzed: 1 } })
@@ -941,6 +1009,7 @@ describe('LLM Wiki runtime model', () => {
       coverage: [],
       citations: [],
       claims: [],
+      businessQuestions: testBusinessQuestionFindings(),
     })).toThrow('settle every assigned Coverage item exactly once')
   })
 
@@ -1012,6 +1081,7 @@ describe('LLM Wiki runtime model', () => {
         coverageIds: [],
         sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings(),
     }, '2026-08-27T00:08:00.000Z')
 
     expect(synthesizing.run).toMatchObject({
@@ -1035,7 +1105,7 @@ describe('LLM Wiki runtime model', () => {
         { id: 'consistency', state: 'pass', issueCount: 0 },
         { id: 'pages', state: 'pass', issueCount: 0 },
         { id: 'material-exposure', state: 'fail', issueCount: 1 },
-        { id: 'business-questions', state: 'unsupported', issueCount: 1 },
+        { id: 'business-questions', state: 'pass', issueCount: 0 },
         { id: 'cross-module-flows', state: 'unsupported', issueCount: 1 },
       ],
     })
@@ -1079,6 +1149,7 @@ describe('LLM Wiki runtime model', () => {
           coverageIds: [coverage.id],
           sourceClaimIds: [],
         }],
+        businessQuestions: testBusinessQuestionFindings([claimIds[index]!]),
       }, `2026-08-27T00:2${index}:00.000Z`, 2)
     }
     const verificationTask = current.tasks.find(task => task.kind === 'verification')!
@@ -1261,6 +1332,7 @@ describe('LLM Wiki runtime model', () => {
         coverageIds: [planned.coverage[0]!.id],
         sourceClaimIds: [],
       }],
+      businessQuestions: testBusinessQuestionFindings([claimId]),
     }, '2026-08-27T03:01:00.000Z')
     const verificationTask = analyzed.tasks.find(task => task.kind === 'verification')!
     const synthesizing = succeedWikiVerificationTask(startWikiTask(
@@ -1391,6 +1463,7 @@ describe('LLM Wiki runtime model', () => {
         }],
         citations: [],
         claims: [],
+        businessQuestions: testBusinessQuestionFindings(),
       }, `2026-08-27T03:0${index}:30.000Z`)
     }
     const tampered = withoutSnapshotHash(completed)

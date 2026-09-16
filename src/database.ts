@@ -121,6 +121,7 @@ import {
   createUnplannedWikiConsistencySummary,
   createUnassessedWikiFileSynthesisSummary,
   createUnsupportedWikiModelInputAudit,
+  createUnsupportedWikiBusinessQuestions,
   createUnplannedWikiPageGenerationSummary,
   createWikiConsistencyTasks,
   createWikiPageTasks,
@@ -130,6 +131,7 @@ import {
   parseWikiRunSnapshot,
   summarizeWikiMaterialRanges,
   summarizeWikiMaterialExposure,
+  summarizeWikiBusinessQuestions,
   summarizeWikiTasks,
   wikiTaskId,
   WIKI_RUN_SCHEMA_VERSION,
@@ -139,7 +141,7 @@ import {
 } from './wiki-model.js'
 
 /** Current local candidate/search database schema. */
-export const MEMORY_DATABASE_SCHEMA_VERSION = 25
+export const MEMORY_DATABASE_SCHEMA_VERSION = 26
 
 const SOURCE_RECORD_REBUILD_SCHEMA_VERSION = 3
 const SOURCE_RECORD_SCHEMA_VERSION = 4
@@ -163,6 +165,7 @@ const PRE_LOCAL_MEMORY_ENTRY_SCHEMA_VERSION = 21
 const PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION = 22
 const PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION = 23
 const WIKI_RUNTIME_V8_SCHEMA_VERSION = 24
+const WIKI_RUNTIME_V9_SCHEMA_VERSION = 25
 
 /** SQLite application id protecting unrelated files from memory schema writes. */
 export const MEMORY_DATABASE_APPLICATION_ID = 0x44534d4b
@@ -461,6 +464,7 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         PRE_KNOWLEDGE_HUMAN_REVISION_SCHEMA_VERSION,
         PRE_EFFECTIVE_KNOWLEDGE_SEARCH_SCHEMA_VERSION,
         WIKI_RUNTIME_V8_SCHEMA_VERSION,
+        WIKI_RUNTIME_V9_SCHEMA_VERSION,
         MEMORY_DATABASE_SCHEMA_VERSION,
       ].includes(version)) {
       throw new Error(
@@ -503,6 +507,9 @@ async function openDatabase(path: string, journalMode: MemoryJournalMode): Promi
         && version >= PRE_MATERIAL_BUDGET_SCHEMA_VERSION
         && version <= WIKI_RUNTIME_V8_SCHEMA_VERSION) {
         migrateWikiRuntimeV8(database)
+      }
+      if (applicationId === MEMORY_DATABASE_APPLICATION_ID && version === WIKI_RUNTIME_V9_SCHEMA_VERSION) {
+        migrateWikiRuntimeV9(database)
       }
       if (applicationId === MEMORY_DATABASE_APPLICATION_ID
         && version >= SOURCE_RECORD_REBUILD_SCHEMA_VERSION
@@ -923,6 +930,7 @@ function wikiTaskWithEmptyMaterialRanges(value: unknown, label: string): WikiSha
     ...structuredClone(value),
     materialRanges: [],
     modelInputAudit: createUnsupportedWikiModelInputAudit(),
+    ...(value['kind'] === 'analysis' ? { businessQuestions: createUnsupportedWikiBusinessQuestions() } : {}),
   } as unknown as WikiShardTask
 }
 
@@ -931,6 +939,7 @@ function wikiTaskWithUnsupportedModelInput(value: unknown, label: string): WikiS
   return {
     ...structuredClone(value),
     modelInputAudit: createUnsupportedWikiModelInputAudit(),
+    ...(value['kind'] === 'analysis' ? { businessQuestions: createUnsupportedWikiBusinessQuestions() } : {}),
   } as unknown as WikiShardTask
 }
 
@@ -1081,6 +1090,7 @@ function migrateWikiRuntimeV1(database: DatabaseSync): void {
           candidatePairs: [],
           materialRanges: [],
           modelInputAudit: createUnsupportedWikiModelInputAudit(),
+          businessQuestions: createUnsupportedWikiBusinessQuestions(),
           status: 'planned',
           attemptCount: 0,
           createdAt: String(rawRun['createdAt']),
@@ -1093,6 +1103,7 @@ function migrateWikiRuntimeV1(database: DatabaseSync): void {
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     migratedRun['consistency'] = createUnplannedWikiConsistencySummary()
     migratedRun['pageGeneration'] = createUnplannedWikiPageGenerationSummary()
@@ -1158,6 +1169,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
         candidatePairs: [],
         materialRanges: [],
         modelInputAudit: createUnsupportedWikiModelInputAudit(),
+        businessQuestions: createUnsupportedWikiBusinessQuestions(),
       } as unknown as WikiShardTask
     })
     const claims = wikiChildPayloads(database, 'wiki_claims', runId)
@@ -1204,6 +1216,7 @@ function migrateWikiRuntimeV2(database: DatabaseSync): void {
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1269,6 +1282,7 @@ function migrateWikiRuntimeV3(database: DatabaseSync): void {
         candidatePairs: [],
         materialRanges: [],
         modelInputAudit: createUnsupportedWikiModelInputAudit(),
+        ...(value['kind'] === 'analysis' ? { businessQuestions: createUnsupportedWikiBusinessQuestions() } : {}),
       } as unknown as WikiShardTask
     })
     const migratedRun = structuredClone(rawRun)
@@ -1306,6 +1320,7 @@ function migrateWikiRuntimeV3(database: DatabaseSync): void {
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1385,6 +1400,7 @@ function migrateWikiRuntimeV4(database: DatabaseSync): void {
     migratedRun['tasks'] = summarizeWikiTasks(tasks)
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1435,6 +1451,7 @@ function migrateWikiRuntimeV5(database: DatabaseSync): void {
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
     migratedRun['materialRanges'] = summarizeWikiMaterialRanges(tasks)
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
@@ -1481,6 +1498,7 @@ function migrateWikiRuntimeV6(database: DatabaseSync): void {
     migratedRun['schemaVersion'] = WIKI_RUN_SCHEMA_VERSION
     migratedRun['fileSynthesis'] = createUnassessedWikiFileSynthesisSummary()
     migratedRun['materialExposure'] = summarizeWikiMaterialExposure(tasks)
+    migratedRun['businessQuestions'] = summarizeWikiBusinessQuestions(tasks)
     const migrated = finalizeWikiRunSnapshot({
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: migratedRun as unknown as WikiRun,
@@ -1536,7 +1554,8 @@ function migrateWikiRuntimeV7(database: DatabaseSync): void {
       schemaVersion: WIKI_RUN_SCHEMA_VERSION,
       run: { ...rawRun, schemaVersion: WIKI_RUN_SCHEMA_VERSION,
         fileSynthesis: createUnassessedWikiFileSynthesisSummary(tasks),
-        materialExposure: summarizeWikiMaterialExposure(tasks) } as unknown as WikiRun,
+        materialExposure: summarizeWikiMaterialExposure(tasks),
+        businessQuestions: summarizeWikiBusinessQuestions(tasks) } as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
       tasks, claims,
       citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
@@ -1579,6 +1598,46 @@ function migrateWikiRuntimeV8(database: DatabaseSync): void {
         ...rawRun,
         schemaVersion: WIKI_RUN_SCHEMA_VERSION,
         materialExposure: summarizeWikiMaterialExposure(tasks),
+        businessQuestions: summarizeWikiBusinessQuestions(tasks),
+      } as unknown as WikiRun,
+      coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
+      tasks,
+      citations: wikiChildPayloads(database, 'wiki_citations', runId) as WikiRunSnapshot['citations'],
+      claims: wikiChildPayloads(database, 'wiki_claims', runId) as WikiRunSnapshot['claims'],
+      conflicts: wikiChildPayloads(database, 'wiki_conflicts', runId) as WikiRunSnapshot['conflicts'],
+      pages: wikiChildPayloads(database, 'wiki_pages', runId) as WikiRunSnapshot['pages'],
+    })
+    for (const task of migrated.tasks) updateTask.run(JSON.stringify(task), runId, task.id)
+    updateRun.run(migrated.snapshotHash, JSON.stringify(migrated.run), runId)
+  }
+}
+
+function migrateWikiRuntimeV9(database: DatabaseSync): void {
+  const rows = database.prepare('SELECT id, payload_json FROM wiki_runs ORDER BY id ASC')
+    .all() as Array<{ id: string; payload_json: string }>
+  const updateTask = database.prepare('UPDATE wiki_tasks SET payload_json = ? WHERE run_id = ? AND id = ?')
+  const updateRun = database.prepare('UPDATE wiki_runs SET snapshot_hash = ?, payload_json = ? WHERE id = ?')
+  for (const row of rows) {
+    const rawRun = parseJson('Wiki v9 run row', row.payload_json)
+    if (!isRecord(rawRun) || rawRun['schemaVersion'] !== 9 || rawRun['id'] !== row.id) {
+      throw new Error('memory-knowledge: Wiki v9 run cannot be migrated')
+    }
+    const runId = WikiRunId(row.id)
+    const tasks = wikiChildPayloads(database, 'wiki_tasks', runId).map(value => {
+      if (!isRecord(value) || typeof value['kind'] !== 'string') {
+        throw new Error('memory-knowledge: Wiki v9 task cannot be migrated')
+      }
+      return {
+        ...structuredClone(value),
+        ...(value['kind'] === 'analysis' ? { businessQuestions: createUnsupportedWikiBusinessQuestions() } : {}),
+      } as unknown as WikiShardTask
+    })
+    const migrated = finalizeWikiRunSnapshot({
+      schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+      run: {
+        ...rawRun,
+        schemaVersion: WIKI_RUN_SCHEMA_VERSION,
+        businessQuestions: summarizeWikiBusinessQuestions(tasks),
       } as unknown as WikiRun,
       coverage: wikiChildPayloads(database, 'wiki_coverage', runId) as WikiRunSnapshot['coverage'],
       tasks,

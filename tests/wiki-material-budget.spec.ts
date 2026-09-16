@@ -7,6 +7,7 @@ import { failWikiTask, startWikiTask, succeedWikiTask } from '../src/wiki-task.j
 import { WikiMaterialBudgetConflictError } from '../src/wiki-material-budget.js'
 import { runCli } from '../src/cli.js'
 import { makeTempDirectory, makeTempProject } from './helpers.js'
+import { testBusinessQuestionFindings } from './wiki-business-question-fixture.js'
 
 const engines: MemoryKnowledgeEngine[] = []
 afterEach(async () => { await Promise.all(engines.splice(0).map(engine => engine.close())) })
@@ -74,6 +75,7 @@ describe('Wiki 材料读取持久账本', () => {
     const completed = succeedWikiTask(test.started, test.key.taskId, {
       coverage: test.started.tasks[0]!.coverageIds.map(coverageId => ({ coverageId, status: 'analyzed', contentHash: `sha256:${'2'.repeat(64)}` })),
       citations: [], claims: [],
+      businessQuestions: testBusinessQuestionFindings(),
     })
     await test.engine.saveWikiRunSnapshot(completed, test.started.snapshotHash)
     await expect(test.engine.increaseWikiMaterialReadBudget(test.key, 200, guard)).rejects.toThrow('尚未完成')
@@ -170,7 +172,7 @@ describe('Wiki 材料读取持久账本', () => {
     expect(await upgraded.getWikiMaterialReadBudget(test.key)).toBeUndefined()
     expect(await upgraded.reserveWikiMaterialRead(test.request)).toMatchObject({ startedAtAttempt: 1, reservationCount: 1 })
     const database = new DatabaseSync(test.databasePath, { readOnly: true })
-    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 })
+    expect(database.prepare('PRAGMA user_version').get()).toEqual({ user_version: 26 })
     database.close()
   })
 

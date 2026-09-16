@@ -20,12 +20,19 @@ import {
   finalizeWikiRunSnapshot,
   MAX_WIKI_PAGE_SLUG_CHARACTERS,
   MAX_WIKI_PAGE_TITLE_CHARACTERS,
+  WIKI_BUSINESS_QUESTION_DEFINITIONS,
+  WIKI_BUSINESS_QUESTION_RULES_VERSION,
   createPendingWikiModelInputAudit,
+  createPendingWikiBusinessQuestions,
+  createUnsupportedWikiBusinessQuestions,
+  summarizeWikiBusinessQuestions,
   summarizeWikiCoverage,
   summarizeWikiMaterialExposure,
   summarizeWikiMaterialRanges,
   summarizeWikiTasks,
   type WikiCitation,
+  type WikiBusinessQuestionFinding,
+  type WikiBusinessQuestionTaskState,
   type WikiClaim,
   type WikiConflict,
   type WikiConsistencyConfig,
@@ -48,6 +55,7 @@ export interface WikiTaskSubmission {
   coverage: WikiTaskCoverageResult[]
   citations: WikiCitation[]
   claims: WikiClaim[]
+  businessQuestions: WikiBusinessQuestionFinding[]
 }
 
 /** File-level Claims and explicitly retained inputs accepted from one synthesis task. */
@@ -226,6 +234,7 @@ export function startWikiTask(
     next.startedAt = timestamp
     next.updatedAt = timestamp
     next.modelInputAudit = createPendingWikiModelInputAudit()
+    if (next.kind === 'analysis') next.businessQuestions = createPendingWikiBusinessQuestions()
     delete next.completedAt
     delete next.failure
     return next
@@ -240,6 +249,7 @@ export function startWikiTask(
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.completedAt
@@ -298,6 +308,7 @@ export function failWikiTask(
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   run.failure = normalizedFailure
@@ -349,6 +360,50 @@ export function succeedWikiTask(
       throw new Error('memory-knowledge: ranged Wiki task content hash does not match prepared material')
     }
   }
+  const submittedClaims = new Map(submission.claims.map(claim => [String(claim.id), claim]))
+  if (submittedClaims.size !== submission.claims.length) {
+    throw new Error('memory-knowledge: Wiki analysis submission Claim ids must be unique')
+  }
+  if (!Array.isArray(submission.businessQuestions)) {
+    throw new Error('memory-knowledge: Wiki analysis must submit business-question findings')
+  }
+  let businessQuestions: WikiBusinessQuestionTaskState = createUnsupportedWikiBusinessQuestions()
+  if (current.businessQuestions?.state === 'pending') {
+    const findingByKey = new Map(submission.businessQuestions.map(finding => [finding.key, finding]))
+    if (findingByKey.size !== submission.businessQuestions.length
+      || findingByKey.size !== WIKI_BUSINESS_QUESTION_DEFINITIONS.length
+      || WIKI_BUSINESS_QUESTION_DEFINITIONS.some(definition => !findingByKey.has(definition.key))) {
+      throw new Error('memory-knowledge: Wiki analysis must settle every required business question exactly once')
+    }
+    const referencedClaimIds = new Set<string>()
+    for (const finding of submission.businessQuestions) {
+      const findingClaims = finding.claimIds.map(claimId => submittedClaims.get(String(claimId)))
+      if (findingClaims.some(claim => claim === undefined)) {
+        throw new Error('memory-knowledge: Wiki question findings may reference only Claims from the same submission')
+      }
+      if (finding.outcome === 'evidence' && (findingClaims.length === 0
+        || findingClaims.some(claim => claim!.kind === 'unknown'))) {
+        throw new Error('memory-knowledge: evidence-backed Wiki questions require non-unknown Claims')
+      }
+      if (finding.outcome === 'unknown' && findingClaims.some(claim => claim!.kind !== 'unknown')) {
+        throw new Error('memory-knowledge: unknown Wiki questions may only reference unknown Claims')
+      }
+      if (finding.outcome !== 'evidence' && finding.reason?.trim().length === 0) {
+        throw new Error('memory-knowledge: unknown or not-applicable Wiki questions require a reason')
+      }
+      for (const claimId of finding.claimIds) referencedClaimIds.add(String(claimId))
+    }
+    if (submission.claims.some(claim => claim.kind !== 'unknown' && !referencedClaimIds.has(String(claim.id)))) {
+      throw new Error('memory-knowledge: every non-unknown analysis Claim must support at least one business question')
+    }
+    businessQuestions = {
+      rulesVersion: WIKI_BUSINESS_QUESTION_RULES_VERSION,
+      state: 'completed',
+      findings: WIKI_BUSINESS_QUESTION_DEFINITIONS.map(definition => structuredClone(findingByKey.get(definition.key)!)),
+    }
+  } else if (submission.businessQuestions.length !== 0) {
+    throw new Error('memory-knowledge: legacy Wiki analysis cannot acquire invented business-question answers')
+  }
   let coverage = snapshot.coverage.map((item): WikiCoverageItem => {
     const result = results.get(String(item.id))
     if (result === undefined) return structuredClone(item)
@@ -375,6 +430,7 @@ export function succeedWikiTask(
         ...structuredClone(task),
         status: 'succeeded',
         modelInputAudit: structuredClone(modelInputAudit ?? current.modelInputAudit),
+        businessQuestions,
         updatedAt: timestamp,
         completedAt: timestamp,
       })
@@ -414,6 +470,7 @@ export function succeedWikiTask(
   run.coverage = summarizeWikiCoverage(coverage)
   run.materialRanges = summarizeWikiMaterialRanges(tasks)
   run.materialExposure = summarizeWikiMaterialExposure(tasks)
+  run.businessQuestions = summarizeWikiBusinessQuestions(tasks)
   run.tasks = summarizeWikiTasks(tasks)
   run.updatedAt = timestamp
   delete run.failure
